@@ -1,0 +1,47 @@
+{
+  "name": "snippet-notes",
+  "version": "0.1.0",
+  "description": "效能笔记,碎片笔记记录软件,与同类型笔记相比，主要对搜索及速记能力进行优化",
+  "main": "main.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "electron .",
+    "dist": "electron-builder --win --x64",
+    "_dist": "electron-builder --linux  --armv7l"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "^22.0.0",
+    "electron-builder": "^24.4.0",
+    "node-gyp": "^9.4.0",
+    "nodejieba": "^2.6.0"
+  },
+  "dependencies": {
+    "2019": "^1.0.1",
+    "@node-rs/jieba": "^1.7.0",
+    "diff": "^5.1.0",
+    "fs-extra": "^11.1.1",
+    "ini": "^4.1.1",
+    "sqlite3": "^5.1.6",
+    "winston": "^3.9.0"
+  },
+  "build": {
+    "nsis": {
+      "shortcutName": "snipnote",
+      "oneClick": false,
+      "allowElevation": true,
+      "installerIcon": "res/img/snippet-note.ico",
+      "uninstallerIcon": "res/img/snippet-note.ico",
+      "installerHeaderIcon": "res/img/snippet-note.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "allowToChangeInstallationDirectory": true
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "res/img/snippet-note.ico"
+    }
+  },
+  "keywords": []
+}
