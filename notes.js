@@ -36,14 +36,14 @@ class Notes{
 
             // then, the normal lunr index initialization
             this.ref('id');
-            this.field('name', { boost: 10 })
+            this.field('title', { boost: 10 })
             this.field('content')
             this.metadataWhitelist = ['position']
 
             for (var i=0; i<notes.length; i++) {
                 this.add({
                     "id": notes[i]['id'],
-                    "name": notes[i]['name'],
+                    "title": notes[i]['name'],
                     "content": notes[i]['content']
                 });
             }

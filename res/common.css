@@ -171,3 +171,8 @@ legend {
     margin: 10px;
     padding: 5px 10px;
 }
+
+.ModalInfoDiv{
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}

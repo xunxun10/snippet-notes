@@ -54,14 +54,18 @@ function CreateMenu(){
             label: 'Help',
             submenu: [
                 {
+                    label: 'Help',
+                    click: () => { AlertToWeb(MyFile.SyncRead(path.join(__dirname, 'help/help.html'))); },
+                },
+                {
                     label: 'About',
                     // 向前台发送消息
-                    click: () => { AlertToWeb(MyFile.SyncRead('help/about.html')); },
+                    click: () => { AlertToWeb(GetAboutText()); },
                 },
                 {
                     label: 'License',
                     // 向前台发送消息
-                    click: () => { AlertToWeb(MyFile.SyncRead('LICENSE')); },
+                    click: () => { AlertToWeb(MyFile.SyncRead(path.join(__dirname, 'LICENSE'))); },
                 },
                 {
                     label: 'DevTools',
@@ -215,7 +219,7 @@ function SendInfoToWeb(err_msg){
 }
 
 function AlertToWeb(msg){
-    CallWeb('alert-to-web', msg)
+    CallWeb('modal-to-web', msg)
 }
 
 // 封装后的前后台通信组件，后续只需要在对方的handle方法中实现逻辑即可，省却preload的修改
@@ -291,3 +295,8 @@ function HandleWebMsg(event, msg){
 }
 
 
+function GetAboutText() {
+    let txt = MyFile.SyncRead(path.join(__dirname, 'help/about.html'));
+    let package = require("./package.json");
+    return txt.replace('__version__', package.version).replace('__electron__', process.versions.electron).replace('__chromium__', process.versions.chrome).replace('__node__', process.versions.node);
+}

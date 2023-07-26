@@ -22,8 +22,8 @@ if(typeof window.electronAPI != 'undefined'){
             "info-on-bg":function(v){
                 Info(v);
             },
-            "alert-to-web":function(v){
-                MyModal.Alert("<pre>" + value + "</pre>");
+            "modal-to-web":function(v){
+                MyModal.Alert("<div class='ModalInfoDiv'>" + value + "</div>");
             },
             "save-note":function(v){
                 SaveAndUpdateNote();
