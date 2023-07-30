@@ -54,7 +54,7 @@ function CreateMenu(){
             label: 'Help',
             submenu: [
                 {
-                    label: 'Help',
+                    label: 'Usage',
                     click: () => { AlertToWeb(MyFile.SyncRead(path.join(__dirname, 'help/help.html'))); },
                 },
                 {
