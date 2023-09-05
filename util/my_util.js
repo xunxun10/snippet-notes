@@ -221,25 +221,33 @@ var MyScroll = class {
     }
 }
 
-var MyTimer = class {
-        /**
+
+var MyTimer = class{
+
+    static _debounce_timer_map = {};  // 内部变量，请勿直接使用
+
+    /**
      * 防抖函数
      * @param {*} func 要执行的函数
      * @param {*} delay 防抖时间,单位毫秒
      */
-    static Dbounce(func, delay) {
+    static Debounce(func, delay, timer_name='default') {
         // 设置定时器标识
-        let timer;
         // 返回事件绑定函数
         return function() {
             // 处理func中this及参数
             let context = this;
             let args = arguments;
             // 先清除定时器
-            clearTimeout(timer);
+            let timer = MyTimer._debounce_timer_map[timer_name];
+            if(timer){
+                clearTimeout(timer);
+            }
+            
             timer = setTimeout(() => {
                 func.apply(context, args);
             }, delay);
+            MyTimer._debounce_timer_map[timer_name] = timer;
         }
     };
 }

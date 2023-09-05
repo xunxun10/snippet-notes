@@ -1,6 +1,7 @@
 const MyDb = require('./util/my_sldb')
 const MyLog = require('./util/my_log')
 const {MyString} = require('./util/my_util')
+const {NoteSearcher} = require('./util/note_searcher')
 
 //var lunr = require('./lib/lunr/lunr-codepiano.js');
 var lunr = require('./lib/lunr/lunr.js');
@@ -104,11 +105,10 @@ class Notes{
     }
 
 
-    static async _CutOneNoteResult(lunr_res_data){
+    static async _CutOneNoteResult(lunr_res_data, share_params){
         let note_id = lunr_res_data["ref"];
         let note = await this.ReadNote(note_id);
         let slice_set = lunr_res_data["matchData"]["metadata"];
-        let matched_range = [];
         let slice_results = [];
         let keys = [];
         for (let key in slice_set) {
@@ -121,12 +121,12 @@ class Notes{
                     let new_end_src = pos_range[0] + pos_range[1];
                     let new_begin = MyString.GetPrePos(note.content, new_begin_src, '\n', 3);
                     let new_end = MyString.GetAfterPos(note.content, new_begin_src, '\n', 3);
-                    if(!MyString.CheckInRange(matched_range, new_begin_src, new_end_src)){
-                        // console.log(new_begin + ":" +  new_end + " not in " + matched_range);   // TODO
+                    if(!MyString.CheckInRange(share_params.matched_range, new_begin_src, new_end_src)){
+                        // console.log(new_begin + ":" +  new_end + " not in " + share_params.matched_range);   // TODO
                         // TODO 后面数据包含前面数据的情况没有处理
                         // TODO 如果其他文件的匹配度大于本文件后续条目时处理是否会有问题？
                         let cur_range = [new_begin, new_end];
-                        matched_range.push(cur_range);
+                        share_params.matched_range.push(cur_range);
                         slice_results.push({id:note_id, name:note.name, key: keys, range:cur_range, str:note.content.substring(cur_range[0], cur_range[1])});
                     }
                 }
@@ -146,16 +146,24 @@ class Notes{
      * @returns 
      */
     static async Search(str){
-        let lunr_result = null;
-        if(!str.match(/[\s*]/)){
-            lunr_result = this.idx.search(str + '*')
-        }else{        
-            lunr_result = this.idx.search(str)
-        }
 
         let note_slice = [];
+        let share_params = { matched_range: [] };
+
+        // 先试用 NoteSearcher 进行完全匹配搜索
+        let notes = await this.GetAllNotes();
+        let full_match_result = NoteSearcher.searchNotes(str, notes);
+        for(let i = 0; i < full_match_result.length; ++i) {
+            console.log(JSON.stringify(full_match_result[i]));  // TODO
+            var new_result = await this._CutOneNoteResult(full_match_result[i], share_params);
+            // 连接数组
+            note_slice.push.apply(note_slice, new_result);
+        }
+
+        let lunr_result = this.idx.search(str)
         for(let i = 0; i < lunr_result.length; ++i) {
-            var new_result = await this._CutOneNoteResult(lunr_result[i]);
+            console.log(JSON.stringify(lunr_result[i])); // TODO
+            var new_result = await this._CutOneNoteResult(lunr_result[i], share_params);
             // 连接数组
             note_slice.push.apply(note_slice, new_result);
         }
