@@ -154,7 +154,7 @@ class Notes{
         let notes = await this.GetAllNotes();
         let full_match_result = NoteSearcher.searchNotes(str, notes);
         for(let i = 0; i < full_match_result.length; ++i) {
-            console.log(JSON.stringify(full_match_result[i]));  // TODO
+            // console.log(JSON.stringify(full_match_result[i]));  // TODO
             var new_result = await this._CutOneNoteResult(full_match_result[i], share_params);
             // 连接数组
             note_slice.push.apply(note_slice, new_result);
@@ -162,7 +162,7 @@ class Notes{
 
         let lunr_result = this.idx.search(str)
         for(let i = 0; i < lunr_result.length; ++i) {
-            console.log(JSON.stringify(lunr_result[i])); // TODO
+            // console.log(JSON.stringify(lunr_result[i])); // TODO
             var new_result = await this._CutOneNoteResult(lunr_result[i], share_params);
             // 连接数组
             note_slice.push.apply(note_slice, new_result);

@@ -343,7 +343,7 @@ $(function(){
         MyModal.Info(display, "note diff");
     });
 
-    $("#last-note").on('input', MyTimer.Dbounce(()=>{
+    $("#last-note").on('input', MyTimer.Debounce(()=>{
         if(IsLastModify()){
             $("#edit-flag").show();;
         }else{
