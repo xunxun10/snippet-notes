@@ -3,16 +3,22 @@
   <head>
     <meta charset="UTF-8">
     <!-- https://developer.mozilla.org/zh-CN/docs/Web/HTTP/CSP -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';">
+    <!-- sha256-kLMTdbP3pLQRHzI4AYMXim60x6usVWoGAc2ydjKVFcc= 为vedit的toolbar脚本，不知是否有问题，暂时放开 TODO -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-kLMTdbP3pLQRHzI4AYMXim60x6usVWoGAc2ydjKVFcc='; style-src 'self' 'unsafe-inline';">
     <title>Snippet Notes</title>
     <script type="text/javascript" src="./lib/jquery/jquery.1.12.js"></script>
     <script type="text/javascript" src="./lib/contextmenu/jquery.contextMenu.js"></script>
     <script type="text/javascript" src="./lib/contextmenu/jquery.ui.position.js"></script>
     <script type="text/javascript" src="./lib/bootstrap/js/bootstrap.min.js"></script>
+
+    <script type="text/javascript" src="./lib/vditor/dist/index.min.js"></script>
+
     <script type="text/javascript" src="lib/mark/jquery.mark.js"></script>
     <script type="text/javascript" src="lib/diff/diff.js"></script>
     <script type="text/javascript" src="./util/my_util.js"></script>
     <script type="text/javascript" src="./renderer.js"></script>
+
+    <link href="./lib/vditor/dist/index.css" rel="stylesheet" type="text/css" />
 
     <link href="./lib/contextmenu/jquery.contextMenu.css" rel="stylesheet" type="text/css">
     <link href="./lib/bootstrap/css/bootstrap.min.css" rel="stylesheet" type="text/css">
@@ -30,14 +36,16 @@
             <li><a id="dir-note-btn" class="top-nav edit-panel-btn glyphicon glyphicon-list" title="所有笔记"></a></li>
             <li><a id="diff-note-btn" class="top-nav edit-panel-btn glyphicon glyphicon-transfer" title="查看变更"></a></li>
             <li><a id="add-note-btn" class="top-nav edit-panel-btn glyphicon glyphicon-plus" title="添加笔记"></a></li>
+            <li><a id="md-mode-btn" class="top-nav edit-panel-btn glyphicon glyphicon-text-width" title="markdown编辑器"></a></li>
         </ul>
         <textarea id="last-note" class="info-div snippet-item" spellcheck="false">最新修改数据</textarea>
+        <div id="md-editor" style="display: none;"></div>
     </div>
 
     <div id="search-res-board" style="display: none;" class="board">
         <span class="left-top-title">搜索结果</span>
         <button id="search-close-btn" class="btn-close glyphicon glyphicon-remove top-right-btn top-right-btn-1" aria-label="Close" title="关闭"></button>
-        <div id="search-res"></div>
+        <div id="search-res" class="board-items"></div>
     </div>
 
     <div id="res-detail-board" style="display: none;" class="board">
@@ -45,7 +53,7 @@
         <button id="search-detail-home-btn" class="glyphicon glyphicon-home top-right-btn top-right-btn-3" aria-label="Home" title="回到主界面"></button>
         <button id="search-detail-edit-btn" class="glyphicon glyphicon-edit top-right-btn top-right-btn-3" aria-label="Edit" title="编辑"></button>
         <button id="search-detail-close-btn" class="glyphicon glyphicon-remove top-right-btn top-right-btn-3" aria-label="Close" title="回到列表"></button>
-        <pre id="res-detail" class="res-detail-item"></pre>
+        <pre id="res-detail" class="res-detail-items board-items"></pre>
     </div>
 
     <div id="bottom-info"></div>

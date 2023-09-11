@@ -111,29 +111,30 @@ class Notes{
         let slice_set = lunr_res_data["matchData"]["metadata"];
         let slice_results = [];
         let keys = [];
+        if(!share_params.matched_range[note_id]){
+            share_params.matched_range[note_id] = [];
+        }
         for (let key in slice_set) {
             let slice = slice_set[key];
             keys.push(key);
             if('content' in slice){
                 // 存在content
                 for(let pos_range of slice['content']['position']){
-                    let new_begin_src = pos_range[0];
-                    let new_end_src = pos_range[0] + pos_range[1];
-                    let new_begin = MyString.GetPrePos(note.content, new_begin_src, '\n', 3);
-                    let new_end = MyString.GetAfterPos(note.content, new_begin_src, '\n', 3);
-                    if(!MyString.CheckInRange(share_params.matched_range, new_begin_src, new_end_src)){
-                        // console.log(new_begin + ":" +  new_end + " not in " + share_params.matched_range);   // TODO
-                        // TODO 后面数据包含前面数据的情况没有处理
-                        // TODO 如果其他文件的匹配度大于本文件后续条目时处理是否会有问题？
+                    let begin_src = pos_range[0];
+                    let end_src = pos_range[0] + pos_range[1];
+                    let new_begin = MyString.GetPrePos(note.content, begin_src, '\n', 3);
+                    let new_end = MyString.GetAfterPos(note.content, begin_src, '\n', 3);
+                    if(!MyString.CheckInRange(share_params.matched_range[note_id], begin_src, end_src)){
+                        // TODO 后面数据包含前面数据时会展现为两条数据，可以优化
                         let cur_range = [new_begin, new_end];
-                        share_params.matched_range.push(cur_range);
+                        share_params.matched_range[note_id].push(cur_range);
                         slice_results.push({id:note_id, name:note.name, key: keys, range:cur_range, str:note.content.substring(cur_range[0], cur_range[1])});
                     }
                 }
             }else{
                 // 只存在title
                 let cur_range = [0, 50];
-                matched_range.push(cur_range);
+                share_params.matched_range[note_id].push(cur_range);
                 slice_results.push({id:note_id, name:note.name, key: keys, range:cur_range, str:note.content.substring(cur_range[0], cur_range[1])});
             }
         }
@@ -148,13 +149,14 @@ class Notes{
     static async Search(str){
 
         let note_slice = [];
-        let share_params = { matched_range: [] };
+        let share_params = { matched_range: new Map() };
 
         // 先试用 NoteSearcher 进行完全匹配搜索
         let notes = await this.GetAllNotes();
-        let full_match_result = NoteSearcher.searchNotes(str, notes);
+        // 正则搜索时自动替换空格为.*
+        let full_match_result = NoteSearcher.searchNotes(str.replace(/\s+/g, '.*'), notes);
         for(let i = 0; i < full_match_result.length; ++i) {
-            // console.log(JSON.stringify(full_match_result[i]));  // TODO
+            // console.log(JSON.stringify(full_match_result[i]));  // DEBUG
             var new_result = await this._CutOneNoteResult(full_match_result[i], share_params);
             // 连接数组
             note_slice.push.apply(note_slice, new_result);
@@ -162,15 +164,14 @@ class Notes{
 
         let lunr_result = this.idx.search(str)
         for(let i = 0; i < lunr_result.length; ++i) {
-            // console.log(JSON.stringify(lunr_result[i])); // TODO
+            // console.log(JSON.stringify(lunr_result[i])); // DEBUG
             var new_result = await this._CutOneNoteResult(lunr_result[i], share_params);
             // 连接数组
             note_slice.push.apply(note_slice, new_result);
         }
 
-        // TODO: remove
-        //console.log(JSON.stringify(lunr_result));
-        //console.log(JSON.stringify(note_slice));
+        //console.log(JSON.stringify(lunr_result));     // DEBUG
+        //console.log(JSON.stringify(note_slice));      // DEBUG
 
         return note_slice;
     }

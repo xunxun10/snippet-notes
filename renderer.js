@@ -72,7 +72,7 @@ function CallSys(type, obj=null){
 }
 
 function SaveAndUpdateNote(new_id = null){
-    let content = $("#last-note").val();
+    let content = GetCurModifyNoteContent();
     if(content == note_data.last_note.content){
         Info("数据未修改，无需保存");
         return;
@@ -104,23 +104,26 @@ function Info(str){
 
 function ShwoResult(v){
     $("#search-res").empty();
-    var keys = [];
+    var keys = new Set();
     for (var i = 0; i <v.length; i++) {
         let new_item = $('<pre class="res-item"></pre>');
         new_item.text( v[i].str);
         new_item.attr('nid', v[i].id);
         new_item.attr('key', v[i].key);
         new_item.attr('range', v[i].range);
-        let item_div = $('<fieldset class="snippet-item info-div"> <legend class="res-item-title">' + v[i].name + '</legend></fieldset>');
+        let item_div = $('<fieldset class="snippet-item"> <legend class="res-item-title">' + v[i].name + '</legend></fieldset>');
         item_div.append(new_item)
         $("#search-res").append(item_div);
-        keys = v[i].key;
+        for(var cur_key of v[i].key){
+            keys.add(cur_key);
+        }
     }
     ShowBoard("#search-res-board");
 
     $(".res-item").dblclick(function(e) {
         let item_dom = $(e.target);
         ShowDetail(item_dom.attr("nid"), item_dom.attr("key"), item_dom.attr("range"));
+        // EditSearchDetail(item_dom.attr("nid"), item_dom.attr("range"));
     });
 
     // 创建右键菜单
@@ -156,9 +159,14 @@ function ShowBoard(dom_str){
 
 function UpdateLastNote(v){
     note_data.last_note = v;
-    var last_note_ele = $('#last-note');
+    var last_note_ele = $("#last-note");
     $("#last-note-title").text(v.name);
     last_note_ele.val(v.content)
+
+    // 如果是md模式则更新md编辑器
+    if(vditor.shown){
+        vditor.obj.setValue(v.content);
+    }
 
     if(note_data.last_note_range){
         // 跳转到指定位置
@@ -173,6 +181,7 @@ function UpdateLastNote(v){
             note_data.first_open = false;
         }
     }
+
     $("#edit-flag").hide();
     Info("已重新加载《" + v.name + "》");
 }
@@ -204,8 +213,16 @@ function UpdateDetail(title, nid, content){
     }, 200);
 }
 
+function GetCurModifyNoteContent(){
+    if (vditor.shown){
+        return vditor.obj.getValue();
+    }else{
+        return $("#last-note").val();
+    }
+}
+
 function IsLastModify(){
-    return $("#last-note").val() != note_data.last_note.content;
+    return GetCurModifyNoteContent() != note_data.last_note.content;
 }
 
 async function EditSearchDetail(detail_id, range = null){
@@ -238,9 +255,57 @@ async function EditSearchDetail(detail_id, range = null){
 }
 
 function InitSize(){
-    $(".board").css('height', ($(window).height() - 100) + 'px');
+    $(".board").css('height', ($(window).height() - 90) + 'px');
     $("#res-detail").css('max-height', ($(window).height() - 120) + 'px');
 }
+
+let vditor = { shown: false, obj: null};
+function SwitchMdEditor(){
+    let md_editor = $("#md-editor");
+    if(vditor.shown){
+        // 隐藏md编辑器
+        $("#last-note").show();
+        md_editor.hide();
+        vditor.shown = false;
+        $("#md-mode-btn").css('background-color', '');
+        // 更新last-note为md编辑器的内容
+        $("#last-note").val(vditor.obj.getValue());
+    }else{
+        // 显示md编辑器，隐藏last-note
+        $("#last-note").hide();
+        md_editor.show();
+        $("#md-mode-btn").css('background-color', '#eee');
+
+        // 使用 vditor 进行 markdown 编辑，展示在 #md-editor 中 
+        if (vditor.obj){
+            vditor.obj.setValue($("#last-note").val());
+        }else{
+            vditor.obj = new Vditor('md-editor', {
+                "height": $("#last-note").height() - 60,
+                "cache": {
+                    "enable": false
+                },
+                "cdn": "./lib/vditor",
+                "value": $("#last-note").val(),
+                "mode": "wysiwyg",  // 即时渲染模式（ir），所见即所得模式（wysiwyg）,分屏预览（sv）
+                "toolbar":[
+                    // 取消 "upload", "record", "export"
+                    "emoji", "headings", "bold", "italic", "strike", "link", "|", "list", "ordered-list", "check", "outdent", "indent", "|", "quote", "line", "code", "inline-code", "insert-before", "insert-after", "|", "table", "|", "undo", "redo", "|", "fullscreen", "edit-mode",
+                    {
+                        name: "more",
+                        toolbar: ["both", "code-theme", "content-theme", "outline", "preview", "devtools", "info", "help",],
+                    },
+                ],
+                "input": function (value, previewElement) {
+                    // 触发last-note input事件
+                    $("#last-note").trigger('input');
+                }
+            })
+        }
+        vditor.shown = true;
+    }
+    $("#last-note").trigger('input');
+};
 
 $(function(){
     // 从后台获取初始数据
@@ -328,33 +393,46 @@ $(function(){
     $('#diff-note-btn').click(()=>{
         var color = '', span = null;
         var display = $("<pre id='diff-info'></pre>");
-        var diff = Diff.diffChars(note_data.last_note.content, $("#last-note").val()),
+        var diff = Diff.diffChars(note_data.last_note.content, GetCurModifyNoteContent()),
             fragment = document.createDocumentFragment();
+        
+        if(!IsLastModify()){
+            MyModal.Alert('没有变更');
+            return;
+        }
 
         diff.forEach(function(part){
             // green for additions, red for deletions, grey for common parts
             color = part.added ? 'green' : part.removed ? 'red' : '';
             span = document.createElement('span');
-            span.style.color = color;
-            span.appendChild(document.createTextNode(part.value));
+            if(color == ''){
+                span.appendChild(document.createTextNode(part.value));
+            }else{
+                span.style.color = color;
+                span.appendChild(document.createTextNode(part.value.replace(/[\t ]/g, '^s').replace(/\n/g, '^n\n')));
+            }
             fragment.appendChild(span);
         });
         display.append(fragment);
         MyModal.Info(display, "note diff");
     });
 
+    $("#md-mode-btn").click(()=>{
+        SwitchMdEditor();
+    });
+
     $("#last-note").on('input', MyTimer.Debounce(()=>{
         if(IsLastModify()){
-            $("#edit-flag").show();;
+            $("#edit-flag").show();
         }else{
             $("#edit-flag").hide();
         }
     }, 300));
 
-    $("#dir-note-btn").click(function(){
+    $("#dir-note-btn, #last-note-title").click(function(){
         CallSys("get_all_note_names");
     });
-
+    
 });
 
 $(window).resize(function(){

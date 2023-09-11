@@ -50,17 +50,16 @@ body {
     top:0px;
 }
 
-
 .snippet-item{
   width: 100%;
-  margin-top:5px;
+  margin-bottom:5px;
   padding:5px;
 }
 .board{
     margin-top: 10px;
 }
 #last-note{
-    height:calc( 100% - 36px );
+    height:calc( 100% - 34px );
     margin-top: -1px;
     line-height: 25px;
 }
@@ -96,8 +95,10 @@ body {
     padding:10px 3px;
     overflow-y: auto;
 }
-#search-res{
+.board-items{
+    height:calc( 100% - 30px );
     overflow-y:auto;
+    margin-top: 5px;
 }
 .left-top-title{
     vertical-align: top;
@@ -120,7 +121,7 @@ body {
 .top-right-btn-3{
     right:calc(215px - 100%);
 }
-.res-item, .res-detail-item, pre{
+.res-item, .res-detail-items, pre{
     white-space: pre-wrap;
     word-wrap: break-word;
 }
@@ -134,7 +135,10 @@ body {
 
 #res-detail{
     margin-top: 5px;
-    background-color:#f9e2ce;
+    background-color:#f5f5f5;
+}
+.mark, mark{
+    padding:2px;
 }
 
 

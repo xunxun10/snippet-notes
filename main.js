@@ -225,7 +225,7 @@ function AlertToWeb(msg){
 // 封装后的前后台通信组件，后续只需要在对方的handle方法中实现逻辑即可，省却preload的修改
 function CallWeb(type, data=null){
     // TODO:remove this
-    console.log(MyDate.Now() + " send to web: " + type + ' ' + JSON.stringify(data).substring(0, 100))
+    console.log(MyDate.Now() + " send to web: " + type + ' ' + JSON.stringify(data).substring(0, 1000))
     SendToWeb('send-to-web', {type:type, data:data})
 }
 
