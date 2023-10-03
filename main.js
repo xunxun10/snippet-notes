@@ -110,10 +110,19 @@ async function ChgDbPath(){
 G_MAIN_WINDOW = null
 
 const createWindow = () => {
+    // 设置icon路径，windows与arm版本路径不同
+    if(is_windows){
+        var icon_path = path.join(__dirname, 'res/img/snippet-note.ico')
+    }else if(process.platform == 'linux'){
+        // 判断为linux，使用专用图标
+        var icon_path = path.join(__dirname, 'res/img/snippet-note.png')
+    }else{
+        var icon_path = path.join(__dirname, 'res/img/snippet-note.png')
+    }
     G_MAIN_WINDOW = new BrowserWindow({
       width: 1200,
       height: 800,
-      icon: path.join(__dirname, 'res/img/snippet-note.ico'),
+      icon: icon_path,
       webPreferences: {
         preload: path.join(__dirname, 'preload.js'),
         nodeIntegration: false      // 禁用node.js以使用jquery,为了安全也最好不要打开
