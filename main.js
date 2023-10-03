@@ -51,12 +51,12 @@ function CreateMenu(){
           ]
         },
         {
+            label: 'Usage',
+            click: () => { AlertToWeb(MyFile.SyncRead(path.join(__dirname, 'help/help.html'))); },
+        },
+        {
             label: 'Help',
             submenu: [
-                {
-                    label: 'Usage',
-                    click: () => { AlertToWeb(MyFile.SyncRead(path.join(__dirname, 'help/help.html'))); },
-                },
                 {
                     label: 'About',
                     // 向前台发送消息
@@ -66,13 +66,13 @@ function CreateMenu(){
                     label: 'License',
                     // 向前台发送消息
                     click: () => { AlertToWeb(MyFile.SyncRead(path.join(__dirname, 'LICENSE'))); },
-                },
-                {
-                    label: 'DevTools',
-                    click: () => { G_MAIN_WINDOW.webContents.openDevTools(); }
-                },
+                }
             ]
-        }
+        },
+        {
+            label: 'DevTools',
+            click: () => { G_MAIN_WINDOW.webContents.openDevTools(); }
+        },
     ])
 }
 

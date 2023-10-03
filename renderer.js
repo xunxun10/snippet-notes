@@ -104,19 +104,15 @@ function Info(str){
 
 function ShwoResult(v){
     $("#search-res").empty();
-    var keys = new Set();
     for (var i = 0; i <v.length; i++) {
         let new_item = $('<pre class="res-item"></pre>');
         new_item.text( v[i].str);
         new_item.attr('nid', v[i].id);
-        new_item.attr('key', v[i].key);
+        new_item.attr('key', v[i].key.join('|'));
         new_item.attr('range', v[i].range);
         let item_div = $('<fieldset class="snippet-item"> <legend class="res-item-title">' + v[i].name + '</legend></fieldset>');
         item_div.append(new_item)
         $("#search-res").append(item_div);
-        for(var cur_key of v[i].key){
-            keys.add(cur_key);
-        }
     }
     ShowBoard("#search-res-board");
 
@@ -142,12 +138,17 @@ function ShwoResult(v){
         }
     });
 
-    // 关键字着色
-    for(var cur_key of keys) {
-        $(".res-item").mark(cur_key, {
-            className: "mark-highlight"
-        });
-    }
+    // 关键字着色,对每个res-item元素进行关键字着色，关键字为key属性
+    $(".res-item").each(function(index, ele_dom){
+        let ele = $(ele_dom);
+        let key = ele.attr('key').split('|');
+        for(var cur_key of key) {
+            ele.mark(cur_key, {
+                className: "mark-highlight",
+                separateWordSearch:false,
+            });
+        }
+    });
 
     Info("已更新" + v.length + "条搜索结果");
 }
@@ -166,6 +167,11 @@ function UpdateLastNote(v){
     // 如果是md模式则更新md编辑器
     if(vditor.shown){
         vditor.obj.setValue(v.content);
+    }else{
+        // 文件加载或切换时如果当前标题以#开头则切换到md模式
+        if(note_data.first_open && v.name[0] == '#'){
+            ShowMdEditor();
+        }
     }
 
     if(note_data.last_note_range){
@@ -189,7 +195,7 @@ function UpdateLastNote(v){
 var detail_data = {};
 async function ShowDetail(note_id, key, range){
     CallSys("get-note-detail", note_id);
-    detail_data.key = key.split(',');
+    detail_data.key = key.split('|');
     detail_data.range = range.split(',');
     ShowBoard("#res-detail-board");
 }
@@ -207,7 +213,8 @@ function UpdateDetail(title, nid, content){
         // 关键字着色
         for(var cur_key of detail_data.key) {
             $("#res-detail").mark(cur_key, {
-                className: "mark-highlight"
+                className: "mark-highlight",
+                separateWordSearch:false,
             });
         }
     }, 200);
@@ -257,54 +264,73 @@ async function EditSearchDetail(detail_id, range = null){
 function InitSize(){
     $(".board").css('height', ($(window).height() - 90) + 'px');
     $("#res-detail").css('max-height', ($(window).height() - 120) + 'px');
+    // 如果为md编辑器模式则修改md编辑器的大小
+    if(vditor.shown){
+        let pre_text = vditor.obj.getValue();
+        vditor.obj = null;
+        ShowMdEditor();
+        setTimeout(()=>{
+            vditor.obj.setValue(pre_text)
+        }, 500);
+    }
 }
 
 let vditor = { shown: false, obj: null};
-function SwitchMdEditor(){
+function ShowMdEditor(){
     let md_editor = $("#md-editor");
+    // 显示md编辑器，隐藏last-note
+    $("#last-note").hide();
+    md_editor.show();
+    $("#md-mode-btn").css('background-color', '#eee');
+
+    // 使用 vditor 进行 markdown 编辑，展示在 #md-editor 中 
+    if (vditor.obj){
+        vditor.obj.setValue($("#last-note").val());
+    }else{
+        vditor.obj = new Vditor('md-editor', {
+            "height": $("#last-note").height() - 60,
+            "cache": {
+                "enable": false
+            },
+            "cdn": "./lib/vditor",
+            "value": $("#last-note").val(),
+            "mode": "ir",  // 即时渲染模式（ir），所见即所得模式（wysiwyg）,分屏预览（sv）
+            "toolbar":[
+                // 取消 "upload", "record", "export"
+                "emoji", "headings", "bold", "italic", "strike", "link", "|", "list", "ordered-list", "check", "outdent", "indent", "|", "quote", "line", "code", "inline-code", "insert-before", "insert-after", "|", "table", "|", "undo", "redo", "|", "fullscreen", "edit-mode",
+                {
+                    name: "more",
+                    toolbar: ["both", "code-theme", "content-theme", "outline", "preview", "devtools", "info", "help",],
+                },
+            ],
+            "input": function (value, previewElement) {
+                // 触发last-note input事件
+                $("#last-note").trigger('input');
+            },
+            "outline": {enable:true}, // 默认显示大纲
+        })
+    }
+    vditor.shown = true;
+    $("#last-note").trigger('input');
+}
+function HideMdEditor(){
+    let md_editor = $("#md-editor");
+    // 隐藏md编辑器
+    $("#last-note").show();
+    md_editor.hide();
+    vditor.shown = false;
+    $("#md-mode-btn").css('background-color', '');
+    // 更新last-note为md编辑器的内容
+    $("#last-note").val(vditor.obj.getValue());
+    $("#last-note").trigger('input');
+}
+function SwitchMdEditor(){
     if(vditor.shown){
         // 隐藏md编辑器
-        $("#last-note").show();
-        md_editor.hide();
-        vditor.shown = false;
-        $("#md-mode-btn").css('background-color', '');
-        // 更新last-note为md编辑器的内容
-        $("#last-note").val(vditor.obj.getValue());
+        HideMdEditor();
     }else{
-        // 显示md编辑器，隐藏last-note
-        $("#last-note").hide();
-        md_editor.show();
-        $("#md-mode-btn").css('background-color', '#eee');
-
-        // 使用 vditor 进行 markdown 编辑，展示在 #md-editor 中 
-        if (vditor.obj){
-            vditor.obj.setValue($("#last-note").val());
-        }else{
-            vditor.obj = new Vditor('md-editor', {
-                "height": $("#last-note").height() - 60,
-                "cache": {
-                    "enable": false
-                },
-                "cdn": "./lib/vditor",
-                "value": $("#last-note").val(),
-                "mode": "wysiwyg",  // 即时渲染模式（ir），所见即所得模式（wysiwyg）,分屏预览（sv）
-                "toolbar":[
-                    // 取消 "upload", "record", "export"
-                    "emoji", "headings", "bold", "italic", "strike", "link", "|", "list", "ordered-list", "check", "outdent", "indent", "|", "quote", "line", "code", "inline-code", "insert-before", "insert-after", "|", "table", "|", "undo", "redo", "|", "fullscreen", "edit-mode",
-                    {
-                        name: "more",
-                        toolbar: ["both", "code-theme", "content-theme", "outline", "preview", "devtools", "info", "help",],
-                    },
-                ],
-                "input": function (value, previewElement) {
-                    // 触发last-note input事件
-                    $("#last-note").trigger('input');
-                }
-            })
-        }
-        vditor.shown = true;
+        ShowMdEditor();
     }
-    $("#last-note").trigger('input');
 };
 
 $(function(){
@@ -424,13 +450,79 @@ $(function(){
     $("#last-note").on('input', MyTimer.Debounce(()=>{
         if(IsLastModify()){
             $("#edit-flag").show();
+            $("#diff-note-btn").removeClass('disabled');
         }else{
             $("#edit-flag").hide();
+            $("#diff-note-btn").addClass('disabled');
         }
     }, 300));
 
-    $("#dir-note-btn, #last-note-title").click(function(){
+    $("#last-note").keydown(function(e){   
+        // last-note输入tab键时对选择的文本进行缩进处理
+        if(e.keyCode == 9){
+            if(e.shiftKey){
+                // shift + tab时取消缩进
+                e.preventDefault();
+                var start = this.selectionStart;
+                var end = this.selectionEnd;
+                var selected = window.getSelection().toString();
+                let indentedText = selected.split('\n').map(line => {
+                    if (line.length >= 4 && line.substring(0, 4) == '    '){
+                        return line.substring(4);
+                    }else{
+                        return line;
+                    }
+                }).join('\n');  
+                var $this = $(this);
+                var pre_value = $this.val();
+                $this.val(pre_value.substring(0, start) + indentedText + pre_value.substring(end));
+                // 重新设置选择的文本位置
+                this.selectionStart = start;
+                this.selectionEnd = start + indentedText.length;
+            }else{
+                // tab时缩进
+                e.preventDefault();
+                var start = this.selectionStart;
+                var end = this.selectionEnd;
+                var $this = $(this);
+                var pre_value = $this.val();
+                if(start == end){
+                    // 没有选择文本时直接插入4个空格
+                    $this.val(pre_value.substring(0, start) + '    ' + pre_value.substring(end));
+                    // 重新设置选择的文本位置
+                    this.selectionStart = start + 4;
+                    this.selectionEnd = start + 4;
+                }else{
+                    var selected = window.getSelection().toString();
+                    let indentedText = selected.split('\n').map(line => {
+                        if (line.length > 0){
+                            return '    ' + line;
+                        }else{
+                            return line;
+                        }
+                    }).join('\n');  
+                    $this.val(pre_value.substring(0, start) + indentedText + pre_value.substring(end));
+                    // 重新设置选择的文本位置
+                    this.selectionStart = start;
+                    this.selectionEnd = start + indentedText.length;
+                }
+            }
+            // 触发input事件
+            $(this).trigger('input');
+        }
+    });
+
+
+    $("#dir-note-btn").click(function(){
         CallSys("get_all_note_names");
+    });
+    $("#last-note-title-btn").click(function(){
+        // 点击标题时判断是否为markdown模式，是的话切换到编辑模式，否则显示所有笔记
+        if(vditor.shown){
+            SwitchMdEditor();
+        }else{
+            CallSys("get_all_note_names");
+        }
     });
     
 });

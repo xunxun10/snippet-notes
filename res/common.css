@@ -127,7 +127,7 @@ body {
 }
 .res-item{
   min-height: 50px;
-  max-height: 150px;
+  max-height: 250px;
   border:none;
   margin: 0px;
 }
@@ -179,4 +179,8 @@ legend {
 .ModalInfoDiv{
     white-space: pre-wrap;
     word-wrap: break-word;
+}
+
+.top-nav.disabled{
+    filter:grayscale(100%);
 }

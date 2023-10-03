@@ -105,37 +105,64 @@ class Notes{
     }
 
 
-    static async _CutOneNoteResult(lunr_res_data, share_params){
+    /**
+     * 聚合搜索的结果，对每个搜索结果进行处理，返回包含数据所在行并进行前后扩展的数据
+     * @param {*} lunr_res_data 
+     * @param {*} share_params 
+     * @returns 
+     */
+    static async Aggregate(lunr_res_data, share_params, include_strs = null){
         let note_id = lunr_res_data["ref"];
         let note = await this.ReadNote(note_id);
         let slice_set = lunr_res_data["matchData"]["metadata"];
         let slice_results = [];
-        let keys = [];
         if(!share_params.matched_range[note_id]){
             share_params.matched_range[note_id] = [];
         }
         for (let key in slice_set) {
+            //console.log('key: ' + key);  // debug
             let slice = slice_set[key];
-            keys.push(key);
+            let keys = new Set();
+            keys.add(key);
             if('content' in slice){
                 // 存在content
                 for(let pos_range of slice['content']['position']){
                     let begin_src = pos_range[0];
                     let end_src = pos_range[0] + pos_range[1];
                     let new_begin = MyString.GetPrePos(note.content, begin_src, '\n', 3);
-                    let new_end = MyString.GetAfterPos(note.content, begin_src, '\n', 3);
+                    let new_end = MyString.GetAfterPos(note.content, begin_src, '\n', 5);
+                    let cur_range_str = note.content.substring(new_begin, new_end);
+                    if(include_strs){
+                        // 如果指定了必须包含的字符串数组，则只有包含这些字符串时才返回
+                        let include = true;
+                        for(let include_str of include_strs){
+                            if(cur_range_str.indexOf(include_str) < 0){
+                                include = false;
+                                break;
+                            }
+                        }
+                        if(!include){
+                            continue;
+                        }else{
+                            // 遍历include_strs元素并将其加入到keys中
+                            for(let include_str of include_strs){
+                                keys.add(include_str);
+                            }
+                        }
+                    }
                     if(!MyString.CheckInRange(share_params.matched_range[note_id], begin_src, end_src)){
                         // TODO 后面数据包含前面数据时会展现为两条数据，可以优化
                         let cur_range = [new_begin, new_end];
                         share_params.matched_range[note_id].push(cur_range);
-                        slice_results.push({id:note_id, name:note.name, key: keys, range:cur_range, str:note.content.substring(cur_range[0], cur_range[1])});
+                        // console.log('keys: ' + JSON.stringify(Array.from(keys)));   // debug
+                        slice_results.push({id:note_id, name:note.name, key: Array.from(keys), range:cur_range, str:cur_range_str});
                     }
                 }
             }else{
                 // 只存在title
                 let cur_range = [0, 50];
                 share_params.matched_range[note_id].push(cur_range);
-                slice_results.push({id:note_id, name:note.name, key: keys, range:cur_range, str:note.content.substring(cur_range[0], cur_range[1])});
+                slice_results.push({id:note_id, name:note.name, key: Array.from(keys), range:cur_range, str:note.content.substring(cur_range[0], cur_range[1])});
             }
         }
         return slice_results;
@@ -154,23 +181,47 @@ class Notes{
         // 先试用 NoteSearcher 进行完全匹配搜索
         let notes = await this.GetAllNotes();
         // 正则搜索时自动替换空格为.*
-        let full_match_result = NoteSearcher.searchNotes(str.replace(/\s+/g, '.*'), notes);
+        let full_match_result = NoteSearcher.searchNotes(str.replace(/\s+/g, '.*').replace(/\+/g, ''), notes);
         for(let i = 0; i < full_match_result.length; ++i) {
-            // console.log(JSON.stringify(full_match_result[i]));  // DEBUG
-            var new_result = await this._CutOneNoteResult(full_match_result[i], share_params);
+            //console.log("reg match: " + JSON.stringify(full_match_result[i]));  // DEBUG
+            var new_result = await this.Aggregate(full_match_result[i], share_params);
             // 连接数组
             note_slice.push.apply(note_slice, new_result);
         }
 
-        let lunr_result = this.idx.search(str)
-        for(let i = 0; i < lunr_result.length; ++i) {
-            // console.log(JSON.stringify(lunr_result[i])); // DEBUG
-            var new_result = await this._CutOneNoteResult(lunr_result[i], share_params);
-            // 连接数组
-            note_slice.push.apply(note_slice, new_result);
+        // 如果str含有空格则对每个子串进行搜索并对结果取交集
+        if(str.indexOf(' ') > 0){
+            let sub_strs = str.replace(/\+/g, '').split(' ');
+            // 找出最长的字符串，通过NoteSearcher.searchNotes搜索出结果，再通过Aggregate函数对剩余的字符串进行包含检查
+            let max_len = 0;
+            let max_str = '';
+            for(let sub_str of sub_strs){
+                if(sub_str.length > max_len){
+                    max_len = sub_str.length;
+                    max_str = sub_str;
+                }
+            }
+            // 找出去掉最长字符串的数组
+            sub_strs.splice(sub_strs.indexOf(max_str), 1);
+
+            let sub_result = NoteSearcher.searchNotes(max_str, notes);
+            for(let i = 0; i < sub_result.length; ++i) {
+                //console.log("multiple match: " + JSON.stringify(sub_result[i]));  // DEBUG
+                var new_result = await this.Aggregate(sub_result[i], share_params, sub_strs);
+                // 连接数组
+                note_slice.push.apply(note_slice, new_result);
+            }
+        }else{
+            // 使用lunr进行搜索
+            let lunr_result = this.idx.search(str)
+            for(let i = 0; i < lunr_result.length; ++i) {
+                //console.log("lunr match: " + JSON.stringify(lunr_result[i])); // DEBUG
+                var new_result = await this.Aggregate(lunr_result[i], share_params);
+                // 连接数组
+                note_slice.push.apply(note_slice, new_result);
+            }
         }
 
-        //console.log(JSON.stringify(lunr_result));     // DEBUG
         //console.log(JSON.stringify(note_slice));      // DEBUG
 
         return note_slice;
