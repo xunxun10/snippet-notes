@@ -102,6 +102,11 @@ function Info(str){
     $('#bottom-info').text(MyDate.Now() + " " + str);
 }
 
+function ShowError(str){   
+    MyModal.Alert("Error: " + str);
+    // Info("Error: " + str);
+}
+
 function ShwoResult(v){
     $("#search-res").empty();
     for (var i = 0; i <v.length; i++) {
@@ -188,7 +193,7 @@ function UpdateLastNote(v){
     }
 
     // 触发input
-    last_note_ele.trigger('input');
+    TriggerNoteInput();
 
     if(note_data.last_note_range){
         // 跳转到指定位置
@@ -238,7 +243,12 @@ function UpdateDetail(title, nid, content){
 
 function GetCurModifyNoteContent(){
     if (vditor.shown){
-        return vditor.obj.getValue();
+        try {
+            return vditor.obj.getValue();
+        } catch (error) {
+            ShowError("get vditor error, " + error);
+            return "";
+        }
     }else{
         return $("#last-note").val();
     }
@@ -282,13 +292,21 @@ function InitSize(){
     $("#res-detail").css('max-height', ($(window).height() - 120) + 'px');
     // 如果为md编辑器模式则修改md编辑器的大小
     if(vditor.shown){
-        let pre_text = vditor.obj.getValue();
+        let pre_text = GetCurModifyNoteContent();
         vditor.obj = null;
         ShowMdEditor();
         setTimeout(()=>{
             vditor.obj.setValue(pre_text)
         }, 500);
     }
+}
+
+// 触发last-note input事件
+function TriggerNoteInput(){
+    // 设置1秒定时器，防止频繁触发input事件
+    MyTimer.Debounce(()=>{
+        $("#last-note").trigger('input');
+    }, 1000, 'triggrt-input')();
 }
 
 let vditor = { shown: false, obj: null};
@@ -327,7 +345,7 @@ function ShowMdEditor(){
         })
     }
     vditor.shown = true;
-    $("#last-note").trigger('input');
+    TriggerNoteInput();
 }
 function HideMdEditor(update_last_note = true){
     let md_editor = $("#md-editor");
@@ -339,7 +357,7 @@ function HideMdEditor(update_last_note = true){
     // 更新last-note为md编辑器的内容
     if(update_last_note){
         $("#last-note").val(vditor.obj.getValue());
-        $("#last-note").trigger('input');
+        TriggerNoteInput();
     }
 }
 function SwitchMdEditor(){
