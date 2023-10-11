@@ -159,6 +159,7 @@ function ShowBoard(dom_str){
 }
 
 function UpdateLastNote(v){
+    // 数据更新必须放在最前面，否则md编辑器打开会报异常
     note_data.last_note = v;
     var last_note_ele = $("#last-note");
     $("#last-note-title").text(v.name);
@@ -167,12 +168,27 @@ function UpdateLastNote(v){
     // 如果是md模式则更新md编辑器
     if(vditor.shown){
         vditor.obj.setValue(v.content);
-    }else{
-        // 文件加载或切换时如果当前标题以#开头则切换到md模式
-        if(note_data.first_open && v.name[0] == '#'){
-            ShowMdEditor();
+    }
+
+    // 根据文件标题自动确定编辑器类型
+    if(note_data.first_open){
+        // 如果是md模式则更新md编辑器
+        if(vditor.shown){
+            // 文件加载或切换时如果当前标题不以#开头则切换到非md模式
+            if(v.name[0] != '#'){
+                // 由于md中的文本有可能被自动格式化，因此不能更新到#last-note
+                HideMdEditor(false);
+            }
+        }else{
+            // 文件加载或切换时如果当前标题以#开头则切换到md模式
+            if(v.name[0] == '#'){
+                ShowMdEditor();
+            }
         }
     }
+
+    // 触发input
+    last_note_ele.trigger('input');
 
     if(note_data.last_note_range){
         // 跳转到指定位置
@@ -313,7 +329,7 @@ function ShowMdEditor(){
     vditor.shown = true;
     $("#last-note").trigger('input');
 }
-function HideMdEditor(){
+function HideMdEditor(update_last_note = true){
     let md_editor = $("#md-editor");
     // 隐藏md编辑器
     $("#last-note").show();
@@ -321,8 +337,10 @@ function HideMdEditor(){
     vditor.shown = false;
     $("#md-mode-btn").css('background-color', '');
     // 更新last-note为md编辑器的内容
-    $("#last-note").val(vditor.obj.getValue());
-    $("#last-note").trigger('input');
+    if(update_last_note){
+        $("#last-note").val(vditor.obj.getValue());
+        $("#last-note").trigger('input');
+    }
 }
 function SwitchMdEditor(){
     if(vditor.shown){
