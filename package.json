@@ -41,8 +41,8 @@
       "icon": "res/img/snippet-note.ico"
     },
     "linux":{
-        "target": "AppImage",
-        "icon": "res/img/snippet-note.png"
+      "target": "AppImage",
+      "icon": "res/img/snippet-note.png"
     }
   },
   "keywords": []
