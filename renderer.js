@@ -247,7 +247,7 @@ function GetCurModifyNoteContent(){
             return vditor.obj.getValue();
         } catch (error) {
             ShowError("get vditor error, " + error);
-            return "";
+            return $("#last-note").val();
         }
     }else{
         return $("#last-note").val();

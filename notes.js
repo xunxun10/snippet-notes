@@ -129,7 +129,7 @@ class Notes{
                 for(let pos_range of slice['content']['position']){
                     let begin_src = pos_range[0];
                     let end_src = pos_range[0] + pos_range[1];
-                    let new_begin = MyString.GetPrePos(note.content, begin_src, '\n', 3);
+                    let new_begin = MyString.GetPrePos(note.content, begin_src, '\n', 6);
                     let new_end = MyString.GetAfterPos(note.content, begin_src, '\n', 5);
                     let cur_range_str = note.content.substring(new_begin, new_end);
                     if(include_strs){

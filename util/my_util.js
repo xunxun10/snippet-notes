@@ -120,7 +120,7 @@ var MyString = class{
      */
     static GetPrePos(str, begin, search_char, search_times){
         let match_time = 0;
-        let more_flag = false;
+        let more_flag = false;  // 是否已超过字数限制
         for(var i=begin; i>=0; --i){
             // 如果前面两个字符都是换行符则终止
             if(i >= 2 && str.charAt(i) == search_char && str.charAt(i-1) == search_char && str.charAt(i-2) == search_char){
@@ -145,8 +145,8 @@ var MyString = class{
                 }
             }
         }
-        let ret = i + 1;   // 已考虑未找到时为-1的情况
-        // 如果前面字符为search_char则返回后面位置
+        let ret = i < 0 ? i + 1 : i;   // 考虑未找到时为-1的情况
+        // 如果字符为search_char则返回后面位置
         if(str.charAt(ret) == search_char && ret+1 < str.length){
             ret += 1;
         }
@@ -159,7 +159,7 @@ var MyString = class{
      * @param {int} begin 
      * @param {string} search_char 
      * @param {int} search_times 
-     * @returns 返回结束位置，位置后闭
+     * @returns 返回结束位置，返回匹配位置的后一位
      */
     static GetAfterPos(str, begin, search_char, search_times){
         let match_time = 0;
@@ -188,12 +188,12 @@ var MyString = class{
                 }
             }
         }
-        let ret = i;   // 已考虑未找到时为length的情况
+        let ret = i >= str.length ? i - 1 : i;   // 考虑未找到时为length的情况
         // 如果后面字符为search_char则返回前一个位置
         if(str.charAt(ret) == search_char && ret-1 >= 0){
             ret -= 1;
         }
-        return ret;
+        return ret + 1;
     }
 
     /**
