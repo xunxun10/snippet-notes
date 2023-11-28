@@ -88,7 +88,14 @@ body {
     width: 100%;
 }
 
+#diff-info .green{
+    background-color: green;
+}
 
+#diff-info .red{
+    background-color: red;
+    /*中划线 text-decoration: line-through; */
+}
 
 #search-res-board{
     background-color:#f8f8f9;
@@ -183,4 +190,22 @@ legend {
 
 .top-nav.disabled{
     filter:grayscale(100%);
+}
+
+.diff-pre-btn, .diff-next-btn{
+    /* 固定显示在右侧中间位置 */
+    position: fixed;
+    top: calc(50% - 20px);
+    right: 40px;
+    z-index: 1000;
+    /* 透明度 */
+    opacity: 0.5;
+    filter:alpha(opacity=50);
+    /* 鼠标悬停时透明度 */
+    -moz-transition: all 0.3s ease-in-out;
+    -webkit-transition: all 0.3s ease-in-out;
+    transition: all 0.3s ease-in-out;
+}
+.diff-next-btn{
+    top: calc(50% + 20px);
 }

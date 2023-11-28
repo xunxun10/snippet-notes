@@ -178,7 +178,10 @@ class Notes{
         let note_slice = [];
         let share_params = { matched_range: new Map() };
 
-        // 先试用 NoteSearcher 进行完全匹配搜索
+        // 去掉首尾空格
+        str = str.trim();
+
+        // 先使用 NoteSearcher 进行完全匹配搜索
         let notes = await this.GetAllNotes();
         // 正则搜索时自动替换空格为.*
         let full_match_result = NoteSearcher.searchNotes(str.replace(/\s+/g, '.*').replace(/\+/g, ''), notes);

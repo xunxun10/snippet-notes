@@ -470,13 +470,70 @@ $(function(){
             if(color == ''){
                 span.appendChild(document.createTextNode(part.value));
             }else{
-                span.style.color = color;
+                // 设置class
+                span.className = 'diff-span ' + color;
                 span.appendChild(document.createTextNode(part.value.replace(/[\t ]/g, '^s').replace(/\n/g, '^n\n')));
             }
             fragment.appendChild(span);
         });
+
         display.append(fragment);
         MyModal.Info(display, "note diff");
+
+        // 设置跳转到上一个及下一个变更的位置的按钮
+        var pre_btn = $("<button class='btn btn-default diff-pre-btn'><span class='glyphicon glyphicon-chevron-up'></span></button>");
+        var next_btn = $("<button class='btn btn-default diff-next-btn'><span class='glyphicon glyphicon-chevron-down'></button>");
+        cur_show_diff = null;
+        pre_btn.click(()=>{
+            var cur_span_parent = $("#diff-info");
+            var cur_span_parent_scroll_top = cur_span_parent.scrollTop();
+            var find_flag = false;
+            // 倒序遍历#diff-info内的span元素
+            $($("#diff-info .diff-span").toArray().reverse()).each(function(index, ele_dom){
+                // 遍历#diff-info内的span元素，找到位于可视区域的前一个span元素
+                var cur_span = $(ele_dom);
+                // 相对于可视区域的位置
+                var cur_span_top = cur_span.position().top;
+                if(cur_span_top < 0){
+                    cur_span_parent.scrollTop(cur_span_parent_scroll_top + cur_span_top - 30);
+                    cur_show_diff = cur_span;
+                    find_flag = true;
+                    return false;
+                }
+            });
+            if(!find_flag){
+                // 提示已无数据
+                MyModal.Alert("已到顶");
+            }
+        });
+        next_btn.click(()=>{
+            var cur_span_parent = $("#diff-info");
+            var cur_span_parent_scroll_top = cur_span_parent.scrollTop();
+            var find_flag = false;
+            // 倒序遍历#diff-info内的span元素
+            $("#diff-info .diff-span").each(function(index, ele_dom){
+                // 遍历#diff-info内的span元素，找到位于可视区域的前一个span元素
+                var cur_span = $(ele_dom);
+                // 相对于可视区域的位置
+                var cur_span_top = cur_span.position().top;
+                // cur_show_diff != cur_span_top 的判断有问题
+                if(cur_span_top > 0){
+                    if(cur_span_top < cur_span_parent.height() && cur_show_diff && cur_show_diff.is(cur_span)){
+                        return; // continue
+                    }
+                    cur_span_parent.scrollTop(cur_span_parent_scroll_top + cur_span_top - 30);
+                    cur_show_diff = cur_span;
+                    find_flag = true;
+                    return false;
+                }
+            });
+            if(!find_flag){
+                // 提示已无数据
+                MyModal.Alert("已到底");
+            }
+        });
+        display.append(pre_btn);
+        display.append(next_btn);
     });
 
     $("#md-mode-btn").click(()=>{
