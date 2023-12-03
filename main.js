@@ -262,8 +262,8 @@ function HandleWebMsg(event, msg){
                 }
                 CallWeb('modify-last-note', note)
             },
-            "search":async function(search_text){
-                CallWeb('show_search_results', await Notes.Search(search_text))
+            "search":async function(search_obj){
+                CallWeb('show_search_results', await Notes.Search(search_obj))
             },
             "save_note":async function(note){
                 let new_note = await Notes.Save(note)

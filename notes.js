@@ -173,7 +173,10 @@ class Notes{
      * @param {String} str 
      * @returns 
      */
-    static async Search(str){
+    static async Search(search_obj){
+        let str = search_obj.key;
+        let search_cur_note_flag = search_obj.cur_note_flag;
+        let search_note_id = search_obj.id;
 
         let note_slice = [];
         let share_params = { matched_range: new Map() };
@@ -182,7 +185,13 @@ class Notes{
         str = str.trim();
 
         // 先使用 NoteSearcher 进行完全匹配搜索
-        let notes = await this.GetAllNotes();
+        if (search_cur_note_flag){
+            var notes = [];
+            notes.push(await this.ReadNote(search_note_id));
+        }else{
+            var notes = await this.GetAllNotes();
+        }
+        
         // 正则搜索时自动替换空格为.*
         let full_match_result = NoteSearcher.searchNotes(str.replace(/\s+/g, '.*').replace(/\+/g, ''), notes);
         for(let i = 0; i < full_match_result.length; ++i) {
@@ -214,7 +223,7 @@ class Notes{
                 // 连接数组
                 note_slice.push.apply(note_slice, new_result);
             }
-        }else{
+        }else if(!search_cur_note_flag){
             // 使用lunr进行搜索
             let lunr_result = this.idx.search(str)
             for(let i = 0; i < lunr_result.length; ++i) {

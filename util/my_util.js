@@ -405,6 +405,115 @@ var MyModal = class {
     }
 }
 
+// 由于localStorage无法使用，相关功能无效
+var MyLocal = class{
+    /**
+     * 设置本地存储的值
+     * @param {*} name 
+     * @param {*} obj 
+     * @param {*} use_session_storage default false
+     */
+	static SetJson(name, obj, use_session_storage=false){
+        if(use_session_storage){
+            sessionStorage.setItem(name, JSON.stringify(obj));
+        }else{
+            localStorage.setItem(name, JSON.stringify(obj));
+        }
+	}
+
+    /**
+     * 获取本地存储的值
+     * @param {*} name 
+     * @param {*} use_session_storage default false
+     * @returns 
+     */
+	static GetJson(name, use_session_storage=false){
+        if(use_session_storage){
+            var v = sessionStorage.getItem(name);
+        }else{
+            var v = localStorage.getItem(name);
+        }
+		
+		if (v != null){
+			return $.parseJSON( v );
+		}
+		return null;
+	}
+}
+
+// 由于localStorage无法使用，相关功能无效
+var PageData = class {
+	/**
+	 * 检查select节点是否有值，如果没有并且local key有值则使用对应值进行跳转
+     * 要注意处理select节点的值为0及本地数据与session数据不一致的情况，因此一个session只触发一次
+	 * @param {*} select_dom_str 
+	 * @param {*} jump_url 末尾以=结束，用于拼接值
+	 * @param {*} local_key 
+	 */
+	static ReadSelect(select_dom_str, jump_url, local_key){
+		let sel_val = $(select_dom_str).val();
+		let local_v = localStorage.getItem(local_key);
+        let session_v = sessionStorage.getItem("jump-" + local_key);
+		if (!sel_val && (!session_v || session_v <= 2) && local_v){
+            sessionStorage.setItem("jump-" + local_key, 1 + Number(session_v));
+			JumpTo(jump_url + localStorage.getItem(local_key));
+		}
+	};
+
+
+    // 以下系列函数用于绑定input val到sessionStorage 变量
+    static _val_from_local_keys = {};
+    /**
+     * 初始化数据，将 input val绑定到local session变量
+     * @param {string} name localStorage变量名
+     * @param {string} input_element_id
+     */
+    static InitValFromLocal(name, input_element){
+        this._val_from_local_keys[input_element] = name;
+        var val = MyLocal.GetJson(name);
+        if(val){
+            // 如果input_element为复选框，则设置checked属性
+            if($(input_element).attr('type') == 'checkbox'){
+                $(input_element).prop('checked', val);
+            }else{
+                $(input_element).val(val);
+            }
+        }
+    }
+    /**
+     * 设置新值
+     * @param {string} input_element_id 
+     */
+    static SetValToLocal(input_element){
+        var name = this._val_from_local_keys[input_element];
+        // 如果input_element为复选框，则读取checked属性
+        if($(input_element).attr('type') == 'checkbox'){
+            var val = $(input_element).prop('checked');
+            MyLocal.SetJson(name, val);
+        }else{
+            var val = $(input_element).val();
+            if(val.length > 1){
+                MyLocal.SetJson(name, val);
+            }
+        }
+    }
+    // 绑定input val到sessionStorage 变量系列函数结束
+
+    /**
+     * 记住页面位置并在刷新时自动加载并跳转
+     * @param {string} name 
+     */
+    static RememberPosition(name){
+        let top_val = MyLocal.GetJson(name, true);
+        if(top_val){
+            PageJump.ScrollTo(Number(top_val), 0);
+        }
+		$(window).bind('unload', function() {
+            MyLocal.SetJson(name, $(document).scrollTop(), true);
+		});
+    }
+}
+
 if(typeof module != "undefined" && typeof module.exports != "undefined"){
     module.exports = { MyDate, MyString };
 }

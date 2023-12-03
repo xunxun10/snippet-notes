@@ -373,12 +373,18 @@ $(function(){
     // 从后台获取初始数据
     CallSys('get-last-note')
 
+    // 初始化是否搜索当前笔记标志
+    PageData.InitValFromLocal('search-cur-page', '#search-cur-page');
+    $("#search-pre-page-btn").click(()=>{
+        SetValToLocal('#search-cur-page');
+    });
+
     $("#search-btn").click(()=>{
         if($("#search-input").val().length < 1){
             Info("搜索内容不能为空");
         }else{
             Info("开始搜索 ...");
-            CallSys('search', $("#search-input").val());
+            CallSys('search', { key:$("#search-input").val(), cur_note_flag:$("#search-cur-page").prop("checked"), id:note_data.last_note.id});
         }
     })
 
@@ -402,7 +408,6 @@ $(function(){
             input.select();
         }
     });
-
 
     // 快捷键
     $('body').bind('keydown', function(event) {
@@ -550,7 +555,7 @@ $(function(){
         }
     }, 300));
 
-    $("#last-note").keydown(function(e){   
+    $("#last-note").keydown(function(e){
         // last-note输入tab键时对选择的文本进行缩进处理
         if(e.keyCode == 9){
             if(e.shiftKey){
