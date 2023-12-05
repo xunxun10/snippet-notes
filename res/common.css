@@ -32,6 +32,7 @@ body {
   background-color: #fff;
   background-image: none;
   border: 1px solid #ccc;
+  border-right: none;
   border-radius: 4px;
   -webkit-box-shadow: inset 0 1px 1px rgba(0,0,0,.075);
   box-shadow: inset 0 1px 1px rgba(0,0,0,.075);
@@ -50,25 +51,47 @@ body {
     top:0px;
 }
 
-.checkbox-div{
-    margin-left: 15px;
-    vertical-align: top;
-    font-size: 13px;
-    display: inline-block;
-    width: 20px;
-    height: 32px;
+.down-sel-toggle{
+    width: 34px;
+    height: 34px;
+    border: 1px solid lightgray;
+    margin-left:-6px;
+    margin-top: -2px;
 }
-.checkbox-div input[type='checkbox']{
+.down-sel-content{
+    overflow-y: auto;
+    overflow-x: auto;
+    background-color: white;
+    border: 1px solid lightgray;
+    border-top: none;
+    border-bottom-left-radius: 4px;
+    border-bottom-right-radius: 4px;
+    position: absolute;
+    top: 35px;
+    right: 0px;
+    z-index: 1000;
+    margin-top: -1px;
+    margin-left: -1px;
+    display: none;
+    text-align: left;
+    padding: 10px;
+    color: #8c8a8a;
+    font-size: 13px;
+}
+.down-sel-content{
+    width: 200px;
+    height: 100px;
+    vertical-align: top;
+}
+.down-sel-content input[type='checkbox']{
     width: 13px;
     height: 13px;
-    margin: 0px;
-    margin-top: 4px;
-    vertical-align: top;
 }
-.checkbox-div span{
-    display: inline-block;
-    margin-top: -2px;
+.down-sel-content label{
+    font-weight: 500;
     vertical-align: top;
+    margin-left: 5px;
+    margin-top: 2px;
 }
 
 
@@ -85,6 +108,11 @@ body {
     margin-top: -1px;
     line-height: 25px;
 }
+/*取消 #last-note bootstrap设置的获取焦点颜色*/
+#last-note:focus{
+    outline: none;
+}
+
 .top-nav{
     padding: 5px 15px !important;
     border:1px solid #000 !important;

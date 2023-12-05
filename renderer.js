@@ -373,10 +373,23 @@ $(function(){
     // 从后台获取初始数据
     CallSys('get-last-note')
 
-    // 初始化是否搜索当前笔记标志
-    PageData.InitValFromLocal('search-cur-page', '#search-cur-page');
-    $("#search-pre-page-btn").click(()=>{
-        SetValToLocal('#search-cur-page');
+    // #search-param-content的checkbox选中时设置toggle背景色
+    $("#search-param-content input[type='checkbox']").change(function(){
+        // 有任何一个checkbox被选中时设置边框橘色发光
+        if($("#search-param-content input[type='checkbox']:checked").length > 0){
+            $("#search-param-toggle").css("background-color", "#f7f7f7");
+        }else{
+            $("#search-param-toggle").css('background-color', '');
+        }
+    });
+
+    $("#search-param-toggle").click(()=>{
+        // 切换 #search-param-content 的显示状态
+        $("#search-param-content").toggle();
+    });
+    // 当不在#search-param-content区域时隐藏
+    $("#search-param-content").hover(()=>{}, ()=>{
+        $("#search-param-content").hide();
     });
 
     $("#search-btn").click(()=>{

@@ -7,6 +7,9 @@
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-kLMTdbP3pLQRHzI4AYMXim60x6usVWoGAc2ydjKVFcc='; style-src 'self' 'unsafe-inline';">
     <title>Snippet Notes</title>
     <script type="text/javascript" src="./lib/jquery/jquery.1.12.js"></script>
+
+    <script type="text/javascript" src="./lib/jquery-ui-1.11.4/jquery-ui.js"></script>
+
     <script type="text/javascript" src="./lib/contextmenu/jquery.contextMenu.js"></script>
     <script type="text/javascript" src="./lib/contextmenu/jquery.ui.position.js"></script>
     <script type="text/javascript" src="./lib/bootstrap/js/bootstrap.min.js"></script>
@@ -20,6 +23,8 @@
 
     <link href="./lib/vditor/dist/index.css" rel="stylesheet" type="text/css" />
 
+    <link href="./lib/jquery-ui-1.11.4/jquery-ui.css" rel="stylesheet" type="text/css" />
+
     <link href="./lib/contextmenu/jquery.contextMenu.css" rel="stylesheet" type="text/css">
     <link href="./lib/bootstrap/css/bootstrap.min.css" rel="stylesheet" type="text/css">
 	<link href="./res/common.css" rel="stylesheet" type="text/css">
@@ -27,8 +32,12 @@
   <body>
     <div class="info-div">
       <input class="search-input" type="text" id="search-input" placeholder="输入搜索内容,可使用空格自行分词" spellcheck="false"/>
+      <a tabindex="-1" title="设置搜索参数" id="search-param-toggle" class="down-sel-toggle ui-button ui-widget ui-button-icon-only custom-combobox-toggle ui-corner-right" role="button"><span class="ui-button-icon ui-icon ui-icon-triangle-1-s"></span><span class="ui-button-icon-space"> </span>
+        <div class="down-sel-content" id="search-param-content">
+            <input type="checkbox" id="search-cur-page" /><label class="checkbox-div" title="勾选表示只搜索当前笔记" for="search-cur-page">只搜索当前笔记</label>
+        </div>
+      </a>
       <button id="search-btn" class="top-btn">搜索</button>
-      <label class="checkbox-div" title="勾选表示只搜索当前笔记" for="search-cur-page"><input type="checkbox" id="search-cur-page" /><span class="glyphicon glyphicon-eye-open"></span></label>
     </div>
 
     <div id="last-note-board" class="board">
