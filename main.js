@@ -295,7 +295,15 @@ function HandleWebMsg(event, msg){
             "get_all_note_names":async function(v){
                 let note_names = await Notes.GetAllNoteNames();
                 CallWeb('show-all-note-names', note_names)
-            }
+            },
+            "get_history_notes":async function(v){
+                let notes_info = await Notes.GetNoteHistoryInfo(v);
+                CallWeb('show-history-notes', notes_info)
+            },
+            "get-note-his-diff":async function(v){
+                let his_note = await Notes.GetNoteHistory(v);
+                CallWeb('show-note-his-diff', his_note)
+            },
         }
         ProcessWebCall[msg.type](value);
     } catch (error) {

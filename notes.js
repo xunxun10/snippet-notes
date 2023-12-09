@@ -20,7 +20,8 @@ class Note{
 
 class Notes{
     static async Init(note_db_file){
-        this.db = new MyDb(note_db_file, "create table if not exists notes(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, content TEXT);")
+        // 初始化数据库时自动创建笔记表及笔记历史表
+        this.db = new MyDb(note_db_file, ["create table if not exists notes(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, content TEXT);","create table if not exists notes_history(id INTEGER PRIMARY KEY AUTOINCREMENT, note_id INTEGER, time DATE, name TEXT, content TEXT);"], true)
         let notes = await Notes.GetAllNotes();
         this.IdxLunr(notes)
     }
@@ -60,6 +61,49 @@ class Notes{
     }
 
     /**
+     * 获取某笔记所有历史的id、name、日期信息数组
+     */
+    static async GetNoteHistoryInfo(id){
+        return await this.db.Query("select id,time,name from notes_history where note_id = ?", [id]);
+    }
+
+    /**
+     * 获取根据id获取笔记的历史版本, 最多返回一个笔记
+     */
+    static async GetNoteHistory(id){
+        let notes = await this.db.Query("select * from notes_history where id = ?", [id]);
+        return notes.length > 0 ? notes[0] : null;
+    }
+
+    /**
+     * 检查是否存在某天的历史版本
+     */
+    static async CheckNoteHistory(id, time){
+        let res = await this.db.Query("select * from notes_history where note_id = ? and time = ?", [id, time]);
+        return res.length > 0;
+    }
+
+    /**
+     * 插入笔记到历史版本，日期为今天，传入note对象
+     */
+    static async InsertNoteHistory(note, retained_num = 25){
+        // 同一个id只保留retained_num条数据
+        let res = await this.db.Query("select id from notes_history where note_id = ? order by time asc", [note.id]);
+        if(res.length >= retained_num){
+            // 删除最早的一条数据
+            await this.db.Run("delete from notes_history where id = ?", [res[0]['id']]);
+        }
+        let today = new Date().toLocaleDateString();
+        // 如果当天历史版本有插入过则更新，否则插入
+        if(await this.CheckNoteHistory(note.id, today)){
+            await this.db.Run("update notes_history set name = ?, content = ? where note_id = ? and time = ?", [note.name, note.content, note.id, today]);
+        }else{
+            await this.db.Run("insert into notes_history (note_id, time, name, content) values (?,?,?,?)", [note.id, today, note.name, note.content]);
+        }
+    }
+
+
+    /**
      * 如果存在则保存，不存在则新建
      * @param {Note} note 
      */
@@ -67,19 +111,21 @@ class Notes{
         if(note.id < 0){
             // 新建
             await this.db.Run("insert into notes (name, content) values (?,?)", [note.name, note.content]);
-            // TODO 需要补充获取最新ID的逻辑
             let insert_id_rows = await this.db.Query("select last_insert_rowid() from notes", []);
             let insert_id = insert_id_rows[0]['last_insert_rowid()']
-            console.debug('inserted id: ' + insert_id);
             if(insert_id < 1 || !insert_id){
                 throw new Error("get insert id error: " + insert_id);
             }
+            // 插入历史版本
+            await this.InsertNoteHistory(note);
             let new_note = note;
             new_note.id = insert_id;
             return new_note;
         }else{
             // 更新
             await this.db.Run("update notes set name = ?, content = ? where id = ?", [note.name, note.content, note.id]);
+            // 插入历史版本
+            await this.InsertNoteHistory(note);
         }
         return note;
     }

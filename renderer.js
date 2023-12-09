@@ -23,6 +23,7 @@ if(typeof window.electronAPI != 'undefined'){
                 Info(v);
             },
             "modal-to-web":function(v){
+                // 从后台发来的消息，弹出模态框
                 MyModal.Alert("<div class='ModalInfoDiv'>" + value + "</div>");
             },
             "save-note":function(v){
@@ -53,6 +54,26 @@ if(typeof window.electronAPI != 'undefined'){
                     EditSearchDetail($(this).attr("nid"));
                     note_data.first_open = true;
                 });
+            },
+            'show-history-notes':function(notes_info){
+                let note_his_div = $("<div></div>");
+                note_his_div.append("<div id='note-history-desc'><span>说明：每份笔记将保存25次变更历史，每天只保留最后一份数据</span></div>");
+                for (var i=0; i<notes_info.length; i++) {
+                    note_his_div.append("<button class='show-note-his-btn' hisid='"+notes_info[i]['id']+"' title='显示历史与当前笔记的差异'>" + notes_info[i]['time'] + ": " +notes_info[i]['name'].substr(0, 30)+"</button>");
+                }
+                MyModal.Info(note_his_div, "笔记历史");
+                $(".show-note-his-btn").click(function(){
+                    // 调用后台获取历史笔记数据
+                    CallSys("get-note-his-diff", $(this).attr("hisid"));
+                });
+            },
+            "show-note-his-diff":function(his_note){
+                // 如果内容相同则提示
+                if(his_note.content == note_data.last_note.content){
+                    MyModal.Alert("历史笔记与当前笔记最新保存内容相同");
+                    return;
+                }
+                ShowDiff(his_note.content, note_data.last_note.content);
             },
         }
         ProcessSysCall[msg.type](value);
@@ -368,6 +389,110 @@ function SwitchMdEditor(){
         ShowMdEditor();
     }
 };
+// 拷贝文字到剪贴板，支持多行文本
+function CopyText(text){
+    // 创建一个textarea元素
+    var textarea = document.createElement('textarea');
+    // 设置textarea的内容为需要拷贝的文本内容
+    textarea.value = text;
+    // 将textarea元素添加到body中
+    document.body.appendChild(textarea);
+    // 选中textarea中的文本
+    textarea.select();
+    // 执行拷贝操作
+    document.execCommand('copy');
+    // 将textarea元素从body中移除
+    document.body.removeChild(textarea);
+    MyModal.Alert("已拷贝到剪贴板");
+}
+
+function ShowDiff(pre_content, cur_content){
+    var color = '', span = null;
+
+    var display = $("<pre id='diff-info'></pre>");
+
+    var diff = Diff.diffChars(pre_content, cur_content),
+        fragment = document.createDocumentFragment();
+
+    diff.forEach(function(part){
+        // green for additions, red for deletions, grey for common parts
+        color = part.added ? 'green' : part.removed ? 'red' : '';
+        span = document.createElement('span');
+        if(color == ''){
+            span.appendChild(document.createTextNode(part.value));
+        }else{
+            // 设置class
+            span.className = 'diff-span ' + color;
+            span.appendChild(document.createTextNode(part.value.replace(/[\t ]/g, '^s').replace(/\n/g, '^n\n')));
+        }
+        fragment.appendChild(span);
+    });
+
+    display.append(fragment);
+    MyModal.Info(display, "note diff", '1000px', '600px', 'diff');
+
+    // 设置跳转到上一个及下一个变更的位置的按钮
+    var pre_btn = $("<button class='btn btn-default diff-pre-btn' title='前一个变更'><span class='glyphicon glyphicon-chevron-up'></span></button>");
+    var next_btn = $("<button class='btn btn-default diff-next-btn' title='后一个变更'><span class='glyphicon glyphicon-chevron-down'></button>");
+    cur_show_diff = null;
+    pre_btn.click(()=>{
+        var cur_span_parent = $("#diff-info");
+        var cur_span_parent_scroll_top = cur_span_parent.scrollTop();
+        var find_flag = false;
+        // 倒序遍历#diff-info内的span元素
+        $($("#diff-info .diff-span").toArray().reverse()).each(function(index, ele_dom){
+            // 遍历#diff-info内的span元素，找到位于可视区域的前一个span元素
+            var cur_span = $(ele_dom);
+            // 相对于可视区域的位置
+            var cur_span_top = cur_span.position().top;
+            if(cur_span_top < 0){
+                cur_span_parent.scrollTop(cur_span_parent_scroll_top + cur_span_top - 30);
+                cur_show_diff = cur_span;
+                find_flag = true;
+                return false;
+            }
+        });
+        if(!find_flag){
+            // 提示已无数据
+            MyModal.Alert("已到顶");
+        }
+    });
+    next_btn.click(()=>{
+        var cur_span_parent = $("#diff-info");
+        var cur_span_parent_scroll_top = cur_span_parent.scrollTop();
+        var find_flag = false;
+        // 倒序遍历#diff-info内的span元素
+        $("#diff-info .diff-span").each(function(index, ele_dom){
+            // 遍历#diff-info内的span元素，找到位于可视区域的前一个span元素
+            var cur_span = $(ele_dom);
+            // 相对于可视区域的位置
+            var cur_span_top = cur_span.position().top;
+            // cur_show_diff != cur_span_top 的判断有问题
+            if(cur_span_top > 0){
+                if(cur_span_top < cur_span_parent.height() && cur_show_diff && cur_show_diff.is(cur_span)){
+                    return; // continue
+                }
+                cur_span_parent.scrollTop(cur_span_parent_scroll_top + cur_span_top - 30);
+                cur_show_diff = cur_span;
+                find_flag = true;
+                return false;
+            }
+        });
+        if(!find_flag){
+            // 提示已无数据
+            MyModal.Alert("已到底");
+        }
+    });
+    display.append(pre_btn);
+    display.append(next_btn);
+
+    // 添加拷贝之前之后的内容按钮
+    var pre_copy_btn = $("<button class='btn btn-default diff-pre-copy-btn' title='拷贝原始数据内容'><span class='glyphicon glyphicon-file'> </span></button>");
+    pre_copy_btn.click(()=>{
+        CopyText(pre_content);
+    });
+    display.append(pre_copy_btn);
+}
 
 $(function(){
     // 从后台获取初始数据
@@ -471,87 +596,11 @@ $(function(){
     });
 
     $('#diff-note-btn').click(()=>{
-        var color = '', span = null;
-        var display = $("<pre id='diff-info'></pre>");
-        var diff = Diff.diffChars(note_data.last_note.content, GetCurModifyNoteContent()),
-            fragment = document.createDocumentFragment();
-        
         if(!IsLastModify()){
             MyModal.Alert('没有变更');
             return;
         }
-
-        diff.forEach(function(part){
-            // green for additions, red for deletions, grey for common parts
-            color = part.added ? 'green' : part.removed ? 'red' : '';
-            span = document.createElement('span');
-            if(color == ''){
-                span.appendChild(document.createTextNode(part.value));
-            }else{
-                // 设置class
-                span.className = 'diff-span ' + color;
-                span.appendChild(document.createTextNode(part.value.replace(/[\t ]/g, '^s').replace(/\n/g, '^n\n')));
-            }
-            fragment.appendChild(span);
-        });
-
-        display.append(fragment);
-        MyModal.Info(display, "note diff");
-
-        // 设置跳转到上一个及下一个变更的位置的按钮
-        var pre_btn = $("<button class='btn btn-default diff-pre-btn'><span class='glyphicon glyphicon-chevron-up'></span></button>");
-        var next_btn = $("<button class='btn btn-default diff-next-btn'><span class='glyphicon glyphicon-chevron-down'></button>");
-        cur_show_diff = null;
-        pre_btn.click(()=>{
-            var cur_span_parent = $("#diff-info");
-            var cur_span_parent_scroll_top = cur_span_parent.scrollTop();
-            var find_flag = false;
-            // 倒序遍历#diff-info内的span元素
-            $($("#diff-info .diff-span").toArray().reverse()).each(function(index, ele_dom){
-                // 遍历#diff-info内的span元素，找到位于可视区域的前一个span元素
-                var cur_span = $(ele_dom);
-                // 相对于可视区域的位置
-                var cur_span_top = cur_span.position().top;
-                if(cur_span_top < 0){
-                    cur_span_parent.scrollTop(cur_span_parent_scroll_top + cur_span_top - 30);
-                    cur_show_diff = cur_span;
-                    find_flag = true;
-                    return false;
-                }
-            });
-            if(!find_flag){
-                // 提示已无数据
-                MyModal.Alert("已到顶");
-            }
-        });
-        next_btn.click(()=>{
-            var cur_span_parent = $("#diff-info");
-            var cur_span_parent_scroll_top = cur_span_parent.scrollTop();
-            var find_flag = false;
-            // 倒序遍历#diff-info内的span元素
-            $("#diff-info .diff-span").each(function(index, ele_dom){
-                // 遍历#diff-info内的span元素，找到位于可视区域的前一个span元素
-                var cur_span = $(ele_dom);
-                // 相对于可视区域的位置
-                var cur_span_top = cur_span.position().top;
-                // cur_show_diff != cur_span_top 的判断有问题
-                if(cur_span_top > 0){
-                    if(cur_span_top < cur_span_parent.height() && cur_show_diff && cur_show_diff.is(cur_span)){
-                        return; // continue
-                    }
-                    cur_span_parent.scrollTop(cur_span_parent_scroll_top + cur_span_top - 30);
-                    cur_show_diff = cur_span;
-                    find_flag = true;
-                    return false;
-                }
-            });
-            if(!find_flag){
-                // 提示已无数据
-                MyModal.Alert("已到底");
-            }
-        });
-        display.append(pre_btn);
-        display.append(next_btn);
+        ShowDiff(note_data.last_note.content, GetCurModifyNoteContent());
     });
 
     $("#md-mode-btn").click(()=>{
@@ -624,9 +673,10 @@ $(function(){
     });
 
 
-    $("#dir-note-btn").click(function(){
-        CallSys("get_all_note_names");
+    $("#note-his-btn").click(function(){
+        CallSys("get_history_notes", note_data.last_note.id);
     });
+
     $("#last-note-title-btn").click(function(){
         // 点击标题时判断是否为markdown模式，是的话切换到编辑模式，否则显示所有笔记
         if(vditor.shown){

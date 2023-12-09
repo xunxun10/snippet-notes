@@ -8,7 +8,8 @@ class SqliteDB{
     // 构造一个数据库实例，支持如果数据库不存在则使用初始化语句创建数据库
     // var SqliteDB = require('./sqlite.js');
     // var db_ins = new SqliteDB("Gis1.db");
-    constructor(file, db_init_sql = null){
+    // db_init_sql db初始化语句数组，如果数据库不存在则使用该语句创建数据库
+    constructor(file, db_init_sql = null, always_create = false){
         let exist = fs.existsSync(file);
         if(!exist){
             console.log("db file not exist, will create it !");
@@ -16,8 +17,11 @@ class SqliteDB{
         };
         MyFile.ToucFile(file)
         this.db = new sqlite3.Database(file);
-        if(!exist && db_init_sql){
-            SqliteDB.CreateTable(this.db, db_init_sql);
+        if((!exist || always_create) && db_init_sql){
+            // 遍历db_init_sql数组执行建表语句
+            for(var i = 0; i < db_init_sql.length; ++i){
+                SqliteDB.CreateTable(this.db, db_init_sql[i]);
+            }
         }
     };
 

@@ -299,22 +299,40 @@ var MyTimer = class{
 
 var MyModal = class {
 
+    static SetMaxZIndex(modal_id){
+        // 设置z-index为当前所有模态框最大值+1
+        let max_z_index = 100;
+        $(".modal").each(function(){
+            let z_index = $(this).css('z-index');
+            if(z_index != 'auto'){
+                z_index = Number(z_index);
+                if(z_index > max_z_index){
+                    max_z_index = z_index;
+                }
+            }
+        });
+        $(modal_id).css('z-index', max_z_index + 1);
+    }
+
     /**
      * 展示信息及关闭按钮
      * @param {*} content 
      * @param {*} title 
+     * @param {*} width
+     * @param {*} height
+     * @param {*} id_str 用于指定modal的额外id标识
      */
-    static Info(content, title='SnippetNote Info', width='1000px', height='600px') {
-        if($("#my-info").length < 1){
+    static Info(content, title='SnippetNote Info', width='1000px', height='600px', id_str="") {
+        if($("#my-info" + id_str).length < 1){
             let modal = `
-            <div class="modal fade" id="my-info" tabindex="-1" role="dialog" aria-labelledby="my-info-label" aria-hidden="true">
+            <div class="modal fade" id="my-info${id_str}" tabindex="-1" role="dialog" aria-labelledby="my-info-label" aria-hidden="true">
                 <div class="modal-dialog">
                     <div class="modal-content">
                         <div class="modal-header">
                             <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
-                            <h4 class="modal-title" id="my-info-label">模态框（Modal）标题</h4>
+                            <h4 class="modal-title" id="my-info-label${id_str}">模态框（Modal）标题</h4>
                         </div>
-                        <div class="modal-body" id="my-info-content">在这里添加一些文本</div>
+                        <div class="modal-body" id="my-info-content${id_str}">在这里添加一些文本</div>
                     </div>
                 </div>
             </div>`;
@@ -322,11 +340,12 @@ var MyModal = class {
             // 避免点击及esc时退出
             // $("#my-info").modal({backdrop: 'static', keyboard: false});
         }
-        $("#my-info-label").text(title);
-        $("#my-info-content").html(content);
-        $("#my-info").modal('show');
-        MyModal.Resize('#my-info', width, height);
-        return $("#my-info");
+        $("#my-info-label" + id_str).text(title);
+        $("#my-info-content" + id_str).html(content);
+        $("#my-info" + id_str).modal('show');
+        MyModal.Resize('#my-info' + id_str, width, height);
+        MyModal.SetMaxZIndex('#my-info' + id_str);
+        return $("#my-info" + id_str);
     }
 
     static Alert(content, ok_fun = null, title='SnippetNote Info') {
@@ -354,6 +373,7 @@ var MyModal = class {
         $("#my-alert-content").html(content);
         ok_fun && $("#my-alert-ok").off("click").click(ok_fun);
         $("#my-alert").modal('show');
+        MyModal.SetMaxZIndex('#my-alert');
         MyModal.Resize('#my-alert');
     }
 
@@ -386,6 +406,7 @@ var MyModal = class {
         cancele_fun && $("#my-confirm-cancel").off("click").click(cancele_fun);
         $("#my-confirm").modal('show')
         MyModal.Resize('#my-confirm');
+        MyModal.SetMaxZIndex('#my-confirm');
     }
 
     static Resize(modal_id, width=null, height=null){
