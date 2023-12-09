@@ -409,13 +409,13 @@ function CopyText(text){
         // 选中textarea中的文本
         textarea.select();
         // 执行拷贝操作
-        document.execCommand('copy');
-        // 将textarea元素从body中移除
-        if(document.body.removeChild(textarea)){
+        if(document.execCommand('copy')){
             MyModal.Alert("已拷贝"+text.length+"字符到剪贴板");
         }else{
             MyModal.Alert("拷贝失败");
         }
+        // 将textarea元素从body中移除
+        document.body.removeChild(textarea)
     }
 }
 
