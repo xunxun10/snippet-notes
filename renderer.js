@@ -391,19 +391,32 @@ function SwitchMdEditor(){
 };
 // 拷贝文字到剪贴板，支持多行文本
 function CopyText(text){
-    // 创建一个textarea元素
-    var textarea = document.createElement('textarea');
-    // 设置textarea的内容为需要拷贝的文本内容
-    textarea.value = text;
-    // 将textarea元素添加到body中
-    document.body.appendChild(textarea);
-    // 选中textarea中的文本
-    textarea.select();
-    // 执行拷贝操作
-    document.execCommand('copy');
-    // 将textarea元素从body中移除
-    document.body.removeChild(textarea);
-    MyModal.Alert("已拷贝到剪贴板");
+    if(navigator.clipboard){
+        navigator.clipboard.writeText(text).then(function() {
+            MyModal.Alert("已拷贝"+text.length+"字符到剪贴板");
+        }, function() {
+            MyModal.Alert("拷贝失败");
+        });
+        return;
+    }else{
+        // 效果不稳定，有时候会拷贝失败
+        // 创建一个textarea元素
+        var textarea = document.createElement('textarea');
+        // 设置textarea的内容为需要拷贝的文本内容
+        textarea.value = text;
+        // 将textarea元素添加到body中
+        document.body.appendChild(textarea);
+        // 选中textarea中的文本
+        textarea.select();
+        // 执行拷贝操作
+        document.execCommand('copy');
+        // 将textarea元素从body中移除
+        if(document.body.removeChild(textarea)){
+            MyModal.Alert("已拷贝"+text.length+"字符到剪贴板");
+        }else{
+            MyModal.Alert("拷贝失败");
+        }
+    }
 }
 
 function ShowDiff(pre_content, cur_content){
