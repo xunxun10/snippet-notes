@@ -57,8 +57,13 @@ if(typeof window.electronAPI != 'undefined'){
             },
             'show-history-notes':function(notes_info){
                 let note_his_div = $("<div></div>");
-                note_his_div.append("<div id='note-history-desc'><span>说明：每份笔记将保存25次变更历史，每天只保留最后一份数据</span></div>");
+                note_his_div.append("<div id='note-history-desc'><span>说明：每份笔记将保存25天的变更历史，每天只保留最后一份数据</span></div>");
+                let today = MyDate.GetToday();
                 for (var i=0; i<notes_info.length; i++) {
+                    // 排除当天的历史笔记
+                    if(notes_info[i]['time'] == today){
+                        continue;
+                    }
                     note_his_div.append("<button class='show-note-his-btn' hisid='"+notes_info[i]['id']+"' title='显示历史与当前笔记的差异'>" + notes_info[i]['time'] + ": " +notes_info[i]['name'].substr(0, 30)+"</button>");
                 }
                 MyModal.Info(note_his_div, "笔记历史");

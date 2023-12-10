@@ -1,6 +1,6 @@
 const MyDb = require('./util/my_sldb')
 const MyLog = require('./util/my_log')
-const {MyString} = require('./util/my_util')
+const {MyDate, MyString} = require('./util/my_util')
 const {NoteSearcher} = require('./util/note_searcher')
 
 //var lunr = require('./lib/lunr/lunr-codepiano.js');
@@ -61,10 +61,10 @@ class Notes{
     }
 
     /**
-     * 获取某笔记所有历史的id、name、日期信息数组
+     * 获取某笔记所有历史的id、name、日期信息数组, 最多返回retained_num条数据
      */
-    static async GetNoteHistoryInfo(id){
-        return await this.db.Query("select id,time,name from notes_history where note_id = ?", [id]);
+    static async GetNoteHistoryInfo(id, retained_num = 25){
+        return await this.db.Query("select id,time,name from notes_history where note_id = ? order by date(time) desc limit ?", [id, retained_num]);
     }
 
     /**
@@ -87,13 +87,16 @@ class Notes{
      * 插入笔记到历史版本，日期为今天，传入note对象
      */
     static async InsertNoteHistory(note, retained_num = 25){
+        let buffer_size = 20;
         // 同一个id只保留retained_num条数据
-        let res = await this.db.Query("select id from notes_history where note_id = ? order by time asc", [note.id]);
-        if(res.length >= retained_num){
-            // 删除最早的一条数据
-            await this.db.Run("delete from notes_history where id = ?", [res[0]['id']]);
+        let res = await this.db.Query("select id from notes_history where note_id = ? order by date(time) asc", [note.id]);
+        if(res.length >= retained_num + buffer_size){
+            // 删除早于retained_num的数据
+            await this.db.Run("delete from notes_history where note_id = ? and id <= ?", [note.id, res[res.length - retained_num - 1]['id']]);
         }
-        let today = new Date().toLocaleDateString();
+        // 获取今天的日期，格式为2021-01-01，toLocaleString及toISOString都有问题
+        let today = MyDate.GetToday();
+        
         // 如果当天历史版本有插入过则更新，否则插入
         if(await this.CheckNoteHistory(note.id, today)){
             await this.db.Run("update notes_history set name = ?, content = ? where note_id = ? and time = ?", [note.name, note.content, note.id, today]);
@@ -116,10 +119,10 @@ class Notes{
             if(insert_id < 1 || !insert_id){
                 throw new Error("get insert id error: " + insert_id);
             }
-            // 插入历史版本
-            await this.InsertNoteHistory(note);
             let new_note = note;
             new_note.id = insert_id;
+            // 插入历史版本
+            await this.InsertNoteHistory(new_note);
             return new_note;
         }else{
             // 更新
