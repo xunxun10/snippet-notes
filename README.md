@@ -6,6 +6,7 @@
 
 软件基于electron开发，遵循MIT开源协议。
 
+提供windows及uos arm版本。
 
 ## 使用
 
