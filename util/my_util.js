@@ -234,7 +234,7 @@ var MyScroll = class {
         return ret;
     }
 
-    static ToTextareaPosition(dom_str, start){
+    static ToTextareaPosition(dom_str, position){
         let dom = $(dom_str);
         let line_height = Number(dom.css('line-height').split('px')[0]);
         let fsize = Number(dom.css('font-size').split('px')[0]);
@@ -246,7 +246,7 @@ var MyScroll = class {
         let line_passed = 0;
         let calc_height = 0;
         for (let i = 0; i < content.length; i++) {
-            if(i >= start){
+            if(i >= position){
                 break;
             }
             let cur_char = content.charAt(i);
@@ -261,7 +261,8 @@ var MyScroll = class {
             }
             line_passed ++;
         }
-        calc_height = passed_lines * line_height - height;
+        calc_height = passed_lines * line_height - height*2/3;
+        console.log("calc_height:", calc_height, "passed_lines:", passed_lines, "height:", height, "line_height:", line_height, "word_in_line:", word_in_line, "fsize:", fsize, "width:", width, "start:", position);
         dom.scrollTop(calc_height > 0 ? calc_height : 0);
     }
 }

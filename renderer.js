@@ -64,7 +64,7 @@ if(typeof window.electronAPI != 'undefined'){
                     if(notes_info[i]['time'] == today){
                         continue;
                     }
-                    note_his_div.append("<button class='show-note-his-btn' hisid='"+notes_info[i]['id']+"' title='显示历史与当前笔记的差异'>" + notes_info[i]['time'] + ": " +notes_info[i]['name'].substr(0, 30)+"</button>");
+                    note_his_div.append("<button class='show-note-his-btn' hisid='"+notes_info[i]['id']+"' title='显示当前笔记与历史的差异(红色表示最新笔记已删除内容)'>" + notes_info[i]['time'] + ": " +notes_info[i]['name'].substr(0, 30)+"</button>");
                 }
                 MyModal.Info(note_his_div, "笔记历史");
                 $(".show-note-his-btn").click(function(){
@@ -189,6 +189,7 @@ function ShowBoard(dom_str){
     $(dom_str).show();
 }
 
+// 首次打开及后续保存后更新界面显示数据
 function UpdateLastNote(v){
     // 数据更新必须放在最前面，否则md编辑器打开会报异常
     note_data.last_note = v;
@@ -196,25 +197,27 @@ function UpdateLastNote(v){
     $("#last-note-title").text(v.name);
     last_note_ele.val(v.content)
 
-    // 如果是md模式则更新md编辑器
-    if(vditor.shown){
-        vditor.obj.setValue(v.content);
-    }
-
     // 根据文件标题自动确定编辑器类型
     if(note_data.first_open){
-        // 如果是md模式则更新md编辑器
-        if(vditor.shown){
+        // 首次打开时的逻辑
+        // 文件加载或切换时如果当前标题以#开头则切换到md模式
+        if(v.name[0] == '#'){
+            ShowMdEditor();
+            // 设置一定延时后重置界面大小，避免md还未初始化就绪
+            setTimeout(InitSize, 1000);
+        }else{
             // 文件加载或切换时如果当前标题不以#开头则切换到非md模式
-            if(v.name[0] != '#'){
+            if(vditor.shown){
                 // 由于md中的文本有可能被自动格式化，因此不能更新到#last-note
                 HideMdEditor(false);
             }
-        }else{
-            // 文件加载或切换时如果当前标题以#开头则切换到md模式
-            if(v.name[0] == '#'){
-                ShowMdEditor();
-            }
+            InitSize();
+        }
+    }else{
+        // 软件已打开，只是更新数据时的逻辑
+        // 如果是md模式则更新md编辑器
+        if(vditor.shown){
+            vditor.obj.setValue(v.content);
         }
     }
 
@@ -224,7 +227,7 @@ function UpdateLastNote(v){
     if(note_data.last_note_range){
         // 跳转到指定位置
         setTimeout(()=>{
-            MyScroll.ToTextareaPosition('#last-note', note_data.last_note_range[0]);
+            MyScroll.ToTextareaPosition('#last-note', note_data.last_note_range[1]);
             note_data.last_note_range = null;
         }, 300);
     }else{
@@ -272,7 +275,7 @@ function GetCurModifyNoteContent(){
         try {
             return vditor.obj.getValue();
         } catch (error) {
-            ShowError("get vditor error, " + error);
+            //ShowError("get vditor error, " + error);
             return $("#last-note").val();
         }
     }else{
@@ -294,6 +297,7 @@ async function EditSearchDetail(detail_id, range = null){
                 note_data.last_note_range = range.split(',');
             }
         
+            HideMdEditor(false);
             // 拉取最新的note进行编辑
             CallSys('get-last-note', detail_id)
         
@@ -305,6 +309,7 @@ async function EditSearchDetail(detail_id, range = null){
         if(range != null){
             note_data.last_note_range = range.split(',');
         }
+        HideMdEditor(false);
         
         // 拉取最新的note进行编辑
         CallSys('get-last-note', detail_id)
@@ -381,7 +386,7 @@ function HideMdEditor(update_last_note = true){
     vditor.shown = false;
     $("#md-mode-btn").css('background-color', '');
     // 更新last-note为md编辑器的内容
-    if(update_last_note){
+    if(update_last_note && vditor.obj){
         $("#last-note").val(vditor.obj.getValue());
         TriggerNoteInput();
     }
@@ -513,7 +518,7 @@ function ShowDiff(pre_content, cur_content){
 }
 
 $(function(){
-    // 从后台获取初始数据
+    // 从后台获取初始数据，并初始化界面
     CallSys('get-last-note')
 
     // #search-param-content的checkbox选中时设置toggle背景色
@@ -578,8 +583,6 @@ $(function(){
         }
     });
     // 快捷键
-
-    InitSize();
 
     // TODO: test
     //ShowBoard("#res-detail-board");
@@ -696,12 +699,8 @@ $(function(){
     });
 
     $("#last-note-title-btn").click(function(){
-        // 点击标题时判断是否为markdown模式，是的话切换到编辑模式，否则显示所有笔记
-        if(vditor.shown){
-            SwitchMdEditor();
-        }else{
-            CallSys("get_all_note_names");
-        }
+        // 点击标题时显示选择笔记界面
+        CallSys("get_all_note_names");
     });
     
 });

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <!-- https://developer.mozilla.org/zh-CN/docs/Web/HTTP/CSP -->
     <!-- sha256-kLMTdbP3pLQRHzI4AYMXim60x6usVWoGAc2ydjKVFcc= 为vedit的toolbar脚本，不知是否有问题，暂时放开 TODO -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-kLMTdbP3pLQRHzI4AYMXim60x6usVWoGAc2ydjKVFcc='; style-src 'self' 'unsafe-inline';">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-kLMTdbP3pLQRHzI4AYMXim60x6usVWoGAc2ydjKVFcc='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; ">
     <title>Snippet Notes</title>
     <script type="text/javascript" src="./lib/jquery/jquery.1.12.js"></script>
 
@@ -19,6 +19,7 @@
     <script type="text/javascript" src="lib/mark/jquery.mark.js"></script>
     <script type="text/javascript" src="lib/diff/diff.js"></script>
     <script type="text/javascript" src="./util/my_util.js"></script>
+    <script type="text/javascript" src="./res/note_event.js"></script>
     <script type="text/javascript" src="./renderer.js"></script>
 
     <link href="./lib/vditor/dist/index.css" rel="stylesheet" type="text/css" />
@@ -42,7 +43,7 @@
 
     <div id="last-note-board" class="board">
         <ul class="nav nav-tabs">
-            <li class="active" id="last-note-title-btn"><a class="top-nav"><span id="last-note-title">Home</span><span id="edit-flag">*</span></a></li>
+            <li class="" id="last-note-title-btn"><a class="top-nav"><span id="last-note-title">Home</span><span id="edit-flag">*</span></a></li>
             <li><a id="diff-note-btn" class="top-nav edit-panel-btn glyphicon glyphicon-transfer disabled" title="查看变更"></a></li>
             <li><a id="note-his-btn" class="top-nav edit-panel-btn glyphicon glyphicon-calendar" title="查看历史（每天只备份第一次变更）"></a></li>
             <li><a id="add-note-btn" class="top-nav edit-panel-btn glyphicon glyphicon-plus" title="添加笔记"></a></li>
