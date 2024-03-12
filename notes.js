@@ -30,6 +30,7 @@ class Notes{
      * 重建搜索索引
      */
     static async IdxLunr(notes){
+        return; // 不再使用lunr搜索
         /* init lunr */
         this.idx = lunr(function () {
             // use the language (zh)
@@ -242,7 +243,7 @@ class Notes{
         }
         
         // 正则搜索时自动替换空格为.*
-        let full_match_result = NoteSearcher.searchNotes(str.replace(/\s+/g, '.*').replace(/\+/g, ''), notes);
+        let full_match_result = NoteSearcher.searchNotes(str.replace(/\s+/g, '.*'), notes);
         for(let i = 0; i < full_match_result.length; ++i) {
             //console.log("reg match: " + JSON.stringify(full_match_result[i]));  // DEBUG
             var new_result = await this.Aggregate(full_match_result[i], share_params);
@@ -252,7 +253,7 @@ class Notes{
 
         // 如果str含有空格则对每个子串进行搜索并对结果取交集
         if(str.indexOf(' ') > 0){
-            let sub_strs = str.replace(/\+/g, '').split(' ');
+            let sub_strs = str.replace(/\s+/g, ' ').split(' ');
             // 找出最长的字符串，通过NoteSearcher.searchNotes搜索出结果，再通过Aggregate函数对剩余的字符串进行包含检查
             let max_len = 0;
             let max_str = '';
@@ -272,7 +273,9 @@ class Notes{
                 // 连接数组
                 note_slice.push.apply(note_slice, new_result);
             }
-        }else if(!search_cur_note_flag){
+        }
+        
+        /*else if(!search_cur_note_flag){
             // 使用lunr进行搜索
             let lunr_result = this.idx.search(str)
             for(let i = 0; i < lunr_result.length; ++i) {
@@ -281,7 +284,7 @@ class Notes{
                 // 连接数组
                 note_slice.push.apply(note_slice, new_result);
             }
-        }
+        }*/
 
         //console.log(JSON.stringify(note_slice));      // DEBUG
 

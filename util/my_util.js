@@ -247,13 +247,26 @@ var MyScroll = class {
             wordWrap: 'break-word',
             wordBreak: 'break-all',
             whiteSpace: 'pre-wrap',
+            overflow: 'scroll',
             visibility: 'hidden'
         });
         div.val(dom.val().substring(0, position));
         dom.after(div);  // 必须保留，否则不会渲染
         // 获取div中文本的实际高度
-        let top = div[0].scrollHeight - 35;
-        div.remove();
+        let text = div.val();
+        let text_arr = text.split('\n');
+        let line_count = text_arr.length + 1;
+        let line_height = Number(div.css('lineHeight').replace('px', ''));
+        let text_calc_height = line_count * line_height;
+        if( text_calc_height < div.height()){
+            // 如果没有出现滚动条，需要计算出文本高度，如果数据有折行，计算会有误差
+            var top = text_calc_height - 55;
+            console.log('scroll top(not scroll):', top);
+        }else{
+            var top = div[0].scrollHeight - 35;
+            console.log('scroll top(scroll):', top);
+        }
+        //div.remove();
         dom.scrollTop(top);
     }
 }
