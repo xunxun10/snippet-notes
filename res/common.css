@@ -50,6 +50,10 @@ body {
     min-width: 40px;
     top:0px;
 }
+#search-param-toggle{
+    vertical-align: top;
+    margin-top: 0px;
+}
 
 .down-sel-toggle{
     width: 34px;

@@ -227,7 +227,7 @@ function UpdateLastNote(v){
     if(note_data.last_note_range){
         // 跳转到指定位置
         setTimeout(()=>{
-            MyScroll.ToTextareaPosition('#last-note', note_data.last_note_range[1]);
+            MyScroll.ToTextareaPosition('#last-note', note_data.last_note_range[0]);
             note_data.last_note_range = null;
         }, 300);
     }else{

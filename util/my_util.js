@@ -236,34 +236,25 @@ var MyScroll = class {
 
     static ToTextareaPosition(dom_str, position){
         let dom = $(dom_str);
-        let line_height = Number(dom.css('line-height').split('px')[0]);
-        let fsize = Number(dom.css('font-size').split('px')[0]);
-        let width = dom.width();
-        let height = dom.height();
-        let word_in_line = width / fsize;
-        let content = dom.val();
-        let passed_lines = 0;
-        let line_passed = 0;
-        let calc_height = 0;
-        for (let i = 0; i < content.length; i++) {
-            if(i >= position){
-                break;
-            }
-            let cur_char = content.charAt(i);
-            if(cur_char == '\n'){
-                passed_lines++;
-                line_passed = 0;
-            }else{
-                if(line_passed >= word_in_line){
-                    passed_lines++;
-                    line_passed = 0;
-                }
-            }
-            line_passed ++;
-        }
-        calc_height = passed_lines * line_height - height*2/3;
-        console.log("calc_height:", calc_height, "passed_lines:", passed_lines, "height:", height, "line_height:", line_height, "word_in_line:", word_in_line, "fsize:", fsize, "width:", width, "start:", position);
-        dom.scrollTop(calc_height > 0 ? calc_height : 0);
+        // 生成一个高度、宽度、padding与原始textarea一样的div，在div position位置插入一个mark标签，获取mark标签的高度，按照高度进行滚动
+        let div = $("<textarea></textarea>").css({
+            width: dom.innerWidth(),    // width + padding
+            height: dom.height(),
+            padding: dom.css('padding'),
+            fontSize: dom.css('fontSize'),
+            fontFamily: dom.css('fontFamily'),
+            lineHeight: dom.css('lineHeight'),
+            wordWrap: 'break-word',
+            wordBreak: 'break-all',
+            whiteSpace: 'pre-wrap',
+            visibility: 'hidden'
+        });
+        div.val(dom.val().substring(0, position));
+        dom.after(div);  // 必须保留，否则不会渲染
+        // 获取div中文本的实际高度
+        let top = div[0].scrollHeight - 35;
+        div.remove();
+        dom.scrollTop(top);
     }
 }
 
