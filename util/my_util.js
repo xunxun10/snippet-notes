@@ -266,7 +266,7 @@ var MyScroll = class {
             var top = div[0].scrollHeight - 35;
             console.log('scroll top(scroll):', top);
         }
-        //div.remove();
+        div.remove();
         dom.scrollTop(top);
     }
 }

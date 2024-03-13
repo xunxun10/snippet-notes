@@ -111,6 +111,7 @@ body {
     height:calc( 100% - 34px );
     margin-top: -1px;
     line-height: 25px;
+    font-family: "Source Han Mono",Menlo,Monaco,Consolas,"Courier New",monospace;
 }
 /*取消 #last-note bootstrap设置的获取焦点颜色*/
 #last-note:focus{
