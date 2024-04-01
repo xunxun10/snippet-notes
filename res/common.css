@@ -111,6 +111,8 @@ body {
     height:calc( 100% - 34px );
     margin-top: -1px;
     line-height: 25px;
+}
+.equal-width-font{
     font-family: "Source Han Mono",Menlo,Monaco,Consolas,"Courier New",monospace;
 }
 /*取消 #last-note bootstrap设置的获取焦点颜色*/
@@ -276,4 +278,11 @@ legend {
 }
 .show-note-his-btn{
     min-width: 300px;
+}
+
+
+/*帮助部分样式*/
+.usage-head{
+    font-weight: 800;
+    margin-bottom: 10px;
 }

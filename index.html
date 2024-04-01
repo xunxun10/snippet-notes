@@ -35,7 +35,8 @@
       <input class="search-input" type="text" id="search-input" placeholder="输入搜索内容,可使用空格自行分词" spellcheck="false"/>
       <a tabindex="-1" title="设置搜索参数" id="search-param-toggle" class="down-sel-toggle ui-button ui-widget ui-button-icon-only custom-combobox-toggle ui-corner-right" role="button"><span class="ui-button-icon ui-icon ui-icon-triangle-1-s"></span><span class="ui-button-icon-space"> </span>
         <div class="down-sel-content" id="search-param-content">
-            <input type="checkbox" id="search-cur-page" /><label class="checkbox-div" title="勾选表示只搜索当前笔记" for="search-cur-page">只搜索当前笔记</label>
+            <div><input type="checkbox" id="search-cur-page" /><label class="checkbox-div" title="勾选表示只搜索当前笔记" for="search-cur-page">只搜索当前笔记</label></div>
+            <div><input type="checkbox" id="search-use-reg" /><label class="checkbox-div" title="勾选表示将搜索词当做正则进行解析" for="search-use-reg">使用正则</label></div>
         </div>
       </a>
       <button id="search-btn" class="top-btn">搜索</button>
@@ -46,7 +47,8 @@
             <li class="" id="last-note-title-btn"><a class="top-nav"><span id="last-note-title">Home</span><span id="edit-flag">*</span></a></li>
             <li><a id="diff-note-btn" class="top-nav edit-panel-btn glyphicon glyphicon-transfer disabled" title="查看变更"></a></li>
             <li><a id="note-his-btn" class="top-nav edit-panel-btn glyphicon glyphicon-calendar" title="查看历史（每天只备份第一次变更）"></a></li>
-            <li><a id="add-note-btn" class="top-nav edit-panel-btn glyphicon glyphicon-plus" title="添加笔记"></a></li>
+            <li><a id="note-replace-btn" class="top-nav edit-panel-btn glyphicon glyphicon-retweet" title="对当前笔记进行查找并替换"></a></li>
+            <li><a id="add-note-btn" class="top-nav edit-panel-btn glyphicon glyphicon-plus" title="添加新笔记"></a></li>
             <li><a id="md-mode-btn" class="top-nav edit-panel-btn glyphicon glyphicon-text-width" title="markdown编辑器"></a></li>
         </ul>
         <textarea id="last-note" class="info-div snippet-item" spellcheck="false">最新修改数据</textarea>

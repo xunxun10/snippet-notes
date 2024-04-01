@@ -241,6 +241,11 @@ class Notes{
         }else{
             var notes = await this.GetAllNotes();
         }
+
+        // 如果不是正则搜索则对str的特殊字符进行转义
+        if(!search_obj.use_reg){
+            str = MyString.EscapeRegExp(str);
+        }
         
         // 正则搜索时自动替换空格为.*
         let full_match_result = NoteSearcher.searchNotes(str.replace(/\s+/g, '.*'), notes);

@@ -33,7 +33,7 @@ var g_sys_params = {
 function CreateMenu(){
     return Menu.buildFromTemplate([
         {
-          label: '数据',
+          label: 'Data',
           submenu: [
             {
                 label: '查看储存位置',
@@ -45,27 +45,27 @@ function CreateMenu(){
                 click: () => ChgDbPath(),
             },
             {
-                label:'保存',
+                label:'保存当前笔记',
                 click: () => { CallWeb('save-note') }
             },
           ]
         },
         {
-            label: 'Usage',
-            click: () => { AlertToWeb(MyFile.SyncRead(path.join(__dirname, 'help/help.html'))); },
-        },
-        {
             label: 'Help',
             submenu: [
                 {
-                    label: 'About',
-                    // 向前台发送消息
-                    click: () => { AlertToWeb(GetAboutText()); },
+                    label: 'Usage',
+                    click: () => { AlertToWeb(MyFile.SyncRead(path.join(__dirname, 'help/help.html'))); },
                 },
                 {
                     label: 'License',
                     // 向前台发送消息
                     click: () => { AlertToWeb(MyFile.SyncRead(path.join(__dirname, 'LICENSE'))); },
+                },
+                {
+                    label: 'About',
+                    // 向前台发送消息
+                    click: () => { AlertToWeb(GetAboutText()); },
                 }
             ]
         },

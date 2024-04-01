@@ -210,6 +210,15 @@ var MyString = class{
         }
         return false;
     }
+
+    /**
+     * 将字符串中具体正则表达式含义的字符转义，即在特殊字符前增加转义符\
+     * @param {*} str 
+     * @returns 
+     */
+    static EscapeRegExp(str) {
+        return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
 };
 
 var MyScroll = class {
@@ -302,6 +311,9 @@ var MyTimer = class{
     };
 }
 
+/**
+ * Bootstrap模态框的封装
+ */
 var MyModal = class {
 
     static SetMaxZIndex(modal_id){
@@ -327,7 +339,7 @@ var MyModal = class {
      * @param {*} height
      * @param {*} id_str 用于指定modal的额外id标识
      */
-    static Info(content, title='SnippetNote Info', width='1000px', height='600px', id_str="") {
+    static Info(content, title='SnippetNotes Info', width='1000px', height='600px', id_str="") {
         if($("#my-info" + id_str).length < 1){
             let modal = `
             <div class="modal fade" id="my-info${id_str}" tabindex="-1" role="dialog" aria-labelledby="my-info-label" aria-hidden="true">
@@ -342,8 +354,8 @@ var MyModal = class {
                 </div>
             </div>`;
             $("body").append($(modal));
-            // 避免点击及esc时退出
-            // $("#my-info").modal({backdrop: 'static', keyboard: false});
+            // 避免点击背景时退出, esc依然退出，不取消右上角关闭按钮
+            $("#my-info").modal({backdrop: 'static', keyboard: true});
         }
         $("#my-info-label" + id_str).text(title);
         $("#my-info-content" + id_str).html(content);
@@ -353,14 +365,14 @@ var MyModal = class {
         return $("#my-info" + id_str);
     }
 
-    static Alert(content, ok_fun = null, title='SnippetNote Info') {
+    static Alert(content, ok_fun = null, width=null, height=null, title='SnippetNotes Info') {
         if($("#my-alert").length < 1){
             let modal = `
             <div class="modal fade" id="my-alert" tabindex="-1" role="dialog" aria-labelledby="my-alert-label" aria-hidden="true">
                 <div class="modal-dialog">
                     <div class="modal-content">
                         <div class="modal-header">
-                            <!--<button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>-->
+                            <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
                             <h4 class="modal-title" id="my-alert-label">模态框（Modal）标题</h4>
                         </div>
                         <div class="modal-body" id="my-alert-content">在这里添加一些文本</div>
@@ -371,18 +383,33 @@ var MyModal = class {
                 </div>
             </div>`;
             $("body").append($(modal));
-            // 避免点击及esc时退出
-            $("#my-alert").modal({backdrop: 'static', keyboard: false});
+            // 避免点击时退出,esc依然退出
+            $("#my-alert").modal({backdrop: 'static', keyboard: true});
         }
         $("#my-alert-label").text(title);
         $("#my-alert-content").html(content);
-        ok_fun && $("#my-alert-ok").off("click").click(ok_fun);
+
+        if(ok_fun){
+            $("#my-alert-ok").off("click").click(ok_fun);
+        }else{
+            $("#my-alert-ok").off("click").click(function(){
+                $("#my-alert").modal('hide');
+            });
+        }
         $("#my-alert").modal('show');
         MyModal.SetMaxZIndex('#my-alert');
-        MyModal.Resize('#my-alert');
+        MyModal.Resize('#my-alert',width, height);
     }
 
-    static Confirm(content, ok_fun=null, cancele_fun=null, title='SnippetNote Confirm') {
+    /**
+     * 弹出确认模态框
+     * @param {*} content 弹框内容
+     * @param {*} ok_fun 确定按钮绑定的函数
+     * @param {*} cancele_fun 取消按钮绑定的函数
+     * @param {*} pre_btn_obj, 额外按钮信息，默认为null，格式为{ text: '按钮文本', fun: function(){...} }
+     * @param {*} title 弹框标题
+     */
+    static Confirm(content, ok_fun=null, cancele_fun=null, pre_btn_obj=null, title='SnippetNotes Confirm') {
         if($("#my-confirm").length < 1){
             let modal = `
             <div class="modal fade" id="my-confirm" tabindex="-1" role="dialog" aria-labelledby="my-confirm-label" aria-hidden="true">
@@ -394,8 +421,9 @@ var MyModal = class {
                         </div>
                         <div class="modal-body" id="my-confirm-content">在这里添加一些文本</div>
                         <div class="modal-footer">
-                            <button type="button" class="btn btn-primary" data-dismiss="modal" id="my-confirm-ok">确定</button>
-                            <button type="button" class="btn btn-default" data-dismiss="modal" id="my-confirm-cancel">取消</button>
+                            <button type="button" class="btn btn-default" data-dismiss="modal" id="my-confirm-third">待定</button>
+                            <button type="button" class="btn btn-default" data-dismiss="modal" id="my-confirm-ok">确定</button>
+                            <button type="button" class="btn btn-primary" data-dismiss="modal" id="my-confirm-cancel">取消</button>
                         </div>
                     </div>
                 </div>
@@ -404,11 +432,36 @@ var MyModal = class {
             // 避免点击及esc时退出
             $("#my-confirm").modal({backdrop: 'static', keyboard: false});
         }
-
         $("#my-confirm-label").text(title);
         $("#my-confirm-content").html(content);
-        ok_fun && $("#my-confirm-ok").off("click").click(ok_fun);
-        cancele_fun && $("#my-confirm-cancel").off("click").click(cancele_fun);
+
+        // 如果需要在模态框中设置第三个按钮，则设置文本及函数
+        if(pre_btn_obj){
+            // 显示按钮
+            $("#my-confirm-third").show();
+            $("#my-confirm-third").text(pre_btn_obj.text);
+            $("#my-confirm-third").off("click").click(pre_btn_obj.fun);
+        }else{
+            // 隐藏按钮my-confirm-third
+            $("#my-confirm-third").hide();
+        }
+
+        if(ok_fun){
+            $("#my-confirm-ok").off("click").click(ok_fun);
+        }else{
+            $("#my-confirm-ok").off("click").click(function(){
+                $("#my-confirm").modal('hide');
+            });
+        }
+
+        if(cancele_fun){
+            $("#my-confirm-cancel").off("click").click(cancele_fun);
+        }else{
+            $("#my-confirm-cancel").off("click").click(function(){
+                $("#my-confirm").modal('hide');
+            });
+        }
+
         $("#my-confirm").modal('show')
         MyModal.Resize('#my-confirm');
         MyModal.SetMaxZIndex('#my-confirm');
@@ -420,11 +473,13 @@ var MyModal = class {
         var win_width = $(window).width();
         var modal_dialog = $this.find(".modal-dialog");
         var content = $this.find('.modal-body');
-        width && modal_dialog.css('width', width);
-        height && content.css('height', height);
+        if(!width){ width = 800; };
+        if(!height){ height = 400; };
+        modal_dialog.css('width', width);
+        content.css('height', height);
         setTimeout(() => {
             // 渲染需要时间，modal_dialog.height()需要延迟计算
-            var m_top = ( $(window).height() - modal_dialog.height() ) / 3;
+            var m_top = ( $(window).height() - modal_dialog.height() ) * 2 / 5;
             modal_dialog.css({'margin': m_top + 'px auto'});
             modal_dialog.css({'max-height': win_height - 100 + 'px', 'max-width': win_width - 100 + 'px'});
         }, 200);

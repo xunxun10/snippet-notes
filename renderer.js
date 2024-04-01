@@ -24,7 +24,7 @@ if(typeof window.electronAPI != 'undefined'){
             },
             "modal-to-web":function(v){
                 // 从后台发来的消息，弹出模态框
-                MyModal.Alert("<div class='ModalInfoDiv'>" + value + "</div>");
+                MyModal.Alert("<div class='ModalInfoDiv'>" + value + "</div>", null, 800);
             },
             "save-note":function(v){
                 SaveAndUpdateNote();
@@ -221,6 +221,14 @@ function UpdateLastNote(v){
         }
     }
 
+    if(v.name[0] == '#'){
+        // 设置字体为等宽字体
+        last_note_ele.addClass('equal-width-font');
+    }else{
+        // 设置字体为默认字体
+        last_note_ele.removeClass('equal-width-font');
+    }
+
     // 触发input
     TriggerNoteInput();
 
@@ -288,33 +296,31 @@ function IsLastModify(){
 }
 
 async function EditSearchDetail(detail_id, range = null){
-    if(IsLastModify()){
-        MyModal.Confirm("笔记内容本地变更尚未保存，是否保存后跳转（不保存将取消跳转动作） ？", function(){
-            // 保存last note并拉取选中的笔记
-            SaveAndUpdateNote(detail_id);
-
-            if(range != null){
-                note_data.last_note_range = range.split(',');
-            }
-        
-            HideMdEditor(false);
-            // 拉取最新的note进行编辑
-            CallSys('get-last-note', detail_id)
-        
-            ShowBoard('#last-note-board');
-        }, function(){
-            Info("需要保存修改内容后才能进行新内容编辑，已取消进入新内容编辑");
-        });
-    }else{
+    function LoadAndJupmToNote(note_id, range){
         if(range != null){
             note_data.last_note_range = range.split(',');
         }
+    
         HideMdEditor(false);
-        
         // 拉取最新的note进行编辑
-        CallSys('get-last-note', detail_id)
+        CallSys('get-last-note', note_id)
     
         ShowBoard('#last-note-board');
+    }
+
+    if(IsLastModify()){
+        MyModal.Confirm("笔记内容本地变更尚未保存，是否保存后跳转（取消按钮表示既不保存也不跳转）？", function(){
+            // 保存last note并拉取选中的笔记
+            SaveAndUpdateNote(detail_id);
+            LoadAndJupmToNote(detail_id, range);
+        }, function(){
+            Info("需要保存修改内容后才能进行新内容编辑，已取消进入新内容编辑");
+        },{ text:"丢弃变更", fun:function(){
+            Info("已丢弃当前笔记变更");
+            LoadAndJupmToNote(detail_id, range);
+        }});
+    }else{
+        LoadAndJupmToNote(detail_id, range);
     }
 }
 
@@ -332,12 +338,12 @@ function InitSize(){
     }
 }
 
-// 触发last-note input事件
+// 触发last-note input事件，以设置edit-flag的显示状态等
 function TriggerNoteInput(){
     // 设置1秒定时器，防止频繁触发input事件
     MyTimer.Debounce(()=>{
         $("#last-note").trigger('input');
-    }, 1000, 'triggrt-input')();
+    }, 500, 'triggrt-input')();
 }
 
 let vditor = { shown: false, obj: null};
@@ -545,9 +551,14 @@ $(function(){
             Info("搜索内容不能为空");
         }else{
             Info("开始搜索 ...");
-            CallSys('search', { key:$("#search-input").val(), cur_note_flag:$("#search-cur-page").prop("checked"), id:note_data.last_note.id});
+            CallSys('search', { 
+                key:$("#search-input").val(), 
+                cur_note_flag:$("#search-cur-page").prop("checked"), 
+                use_reg:$("#search-use-reg").prop("checked"), 
+                id:note_data.last_note.id
+            });
         }
-    })
+    });
 
     /* if  input enter then call #search-btn click */
     $('#search-input').bind('keyup', function(event) {
@@ -579,6 +590,9 @@ $(function(){
             }else if(event.keyCode == 70){
                 // ctrl + f 搜索
                 $("#search-input").focus();
+            }else if(event.keyCode == 72){
+                // ctrl + h 替换
+                $("#note-replace-btn").click();
             }
         }
     });
@@ -696,6 +710,42 @@ $(function(){
 
     $("#note-his-btn").click(function(){
         CallSys("get_history_notes", note_data.last_note.id);
+    });
+
+    // 编辑器内容替换
+    $("#note-replace-btn").click(function(){
+        // 弹框输入替换内容
+        // 生成替换的原始值及目标值输入框的html代码
+        var replace_html=`
+        <div class="form-group">
+            <input type="text" class="form-control" id="noteeditor-replace-from" placeholder="原始值(正则表达式)">
+        </div>
+        <div class="form-group">
+            <input type="text" class="form-control" id="noteeditor-replace-to" placeholder="目标值">
+        </div>
+        `
+        MyModal.Alert(replace_html, function(){
+            if($("#noteeditor-replace-from").length < 1 || $("#noteeditor-replace-to").length < 1){
+                Info("替换内容不能为空");
+                return;
+            }
+            var from_reg = new RegExp($("#noteeditor-replace-from").val(), 'g');
+            var to_str = $("#noteeditor-replace-to").val();
+            // 替换编辑框，如果是md模式则替换md编辑器的内容
+            if(vditor.shown){
+                var new_str = vditor.obj.getValue().replace(from_reg, to_str);
+                vditor.obj.setValue(new_str);
+                // $("#last-note").val(new_str);  
+            }else{
+                $("#last-note").val($("#last-note").val().replace(from_reg, to_str));
+            }
+            // 替换后触发last note input事件
+            TriggerNoteInput();
+        }, 600, 120, "请输入查找并替换内容");
+        // 设置500ms延时后自动聚焦，留出渲染时间
+        setTimeout(()=>{
+            $("#noteeditor-replace-from").focus();
+        }, 500);
     });
 
     $("#last-note-title-btn").click(function(){
