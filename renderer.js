@@ -1,6 +1,10 @@
+/// <reference path="./util/my_util.js" />
+
 // 页面渲染逻辑
 
 let note_data = { last_note_range:null, last_note:{}, first_open:true };
+// 缓存上一次 gutter 的行文本，用于增量更新
+let _lastNoteGutterPrevLines = [];
 
 // 监听后台发来的事件
 if(typeof window.electronAPI != 'undefined'){
@@ -13,6 +17,10 @@ if(typeof window.electronAPI != 'undefined'){
         console.debug("handle from sys: " + msg.type + ' ' + JSON.stringify(value).substring(0, 100))
     
         var ProcessSysCall = {
+            "compare-text":function(v){
+                // 进行文本对比
+                ShowDiffToolPanel();
+            },
             "modify-last-note":function(v){
                 UpdateLastNote(v);
             },
@@ -38,39 +46,16 @@ if(typeof window.electronAPI != 'undefined'){
                         CallSys("close-app");
                     }, function(){
                         Info("请先保存修改再退出");
-                    });
+                    }, null, "笔记内容已被修改", 600, 100);
                 }else{
                     CallSys("close-app");
                 }
             },
             'show-all-note-names':function(note_names){
-                let note_dir = $("<div></div>");
-                for (var i=0; i<note_names.length; i++) {
-                    note_dir.append("<button class='dir-to-note-btn' nid='"+note_names[i]['id']+"'>"+note_names[i]['name'].substr(0, 30)+"</button>");
-                }
-                var modal = MyModal.Info(note_dir, "所有笔记");
-                $(".dir-to-note-btn").click(function(){
-                    modal.modal("hide");
-                    EditSearchDetail($(this).attr("nid"));
-                    note_data.first_open = true;
-                });
+                ShowNoteList(note_names);
             },
             'show-history-notes':function(notes_info){
-                let note_his_div = $("<div></div>");
-                note_his_div.append("<div id='note-history-desc'><span>说明：每份笔记将保存25天的变更历史，每天只保留最后一份数据</span></div>");
-                let today = MyDate.GetToday();
-                for (var i=0; i<notes_info.length; i++) {
-                    // 排除当天的历史笔记
-                    if(notes_info[i]['time'] == today){
-                        continue;
-                    }
-                    note_his_div.append("<button class='show-note-his-btn' hisid='"+notes_info[i]['id']+"' title='显示当前笔记与历史的差异(红色表示最新笔记已删除内容)'>" + notes_info[i]['time'] + ": " +notes_info[i]['name'].substr(0, 30)+"</button>");
-                }
-                MyModal.Info(note_his_div, "笔记历史");
-                $(".show-note-his-btn").click(function(){
-                    // 调用后台获取历史笔记数据
-                    CallSys("get-note-his-diff", $(this).attr("hisid"));
-                });
+                ShowHistoryNoteList(notes_info);
             },
             "show-note-his-diff":function(his_note){
                 // 如果内容相同则提示
@@ -79,6 +64,10 @@ if(typeof window.electronAPI != 'undefined'){
                     return;
                 }
                 ShowDiff(his_note.content, note_data.last_note.content);
+            },
+            "show-default-note":function(default_note_id){
+                EditSearchDetail(default_note_id);
+                note_data.first_open = true;
             },
         }
         ProcessSysCall[msg.type](value);
@@ -197,6 +186,9 @@ function UpdateLastNote(v){
     $("#last-note-title").text(v.name);
     last_note_ele.val(v.content)
 
+    // 同步左侧行号列
+    UpdateLastNoteGutter(v.content);
+
     // 根据文件标题自动确定编辑器类型
     if(note_data.first_open){
         // 首次打开时的逻辑
@@ -241,13 +233,68 @@ function UpdateLastNote(v){
     }else{
         // 默认滚动到文件末尾
         if(note_data.first_open){
-            last_note_ele.animate({scrollTop: last_note_ele.prop("scrollHeight") + 'px'}, 500);
+            last_note_ele.animate({scrollTop: last_note_ele.prop("scrollHeight") + 'px'}, 200);
             note_data.first_open = false;
         }
     }
 
     $("#edit-flag").hide();
     Info("已重新加载《" + v.name + "》");
+}
+
+// 更新左侧行号列（从0开始计数），保持与文本内容行数同步
+function UpdateLastNoteGutter(content){
+    var gutter = document.getElementById('last-note-gutter');
+    if(!gutter) return;
+    // 按换行符分割，保留末尾空行
+    var lines = content === undefined || content === null ? [''] : content.split('\n');
+
+    // 增量更新策略：找到前缀相同的行索引，只对从 firstDiff 开始的行进行添加/更新/删除
+    var prev = _lastNoteGutterPrevLines || [];
+    var prevLen = prev.length;
+    var newLen = lines.length;
+    var minLen = Math.min(prevLen, newLen);
+    var firstDiff = 0;
+    while(firstDiff < minLen && prev[firstDiff] === lines[firstDiff]){
+        firstDiff++;
+    }
+
+    // 如果 gutter 为空或首次渲染，直接生成剩余节点
+    // 保证 gutter.childNodes 的数量至少为 firstDiff
+    // 更新或创建从 firstDiff 到 newLen-1 的行号节点
+    for(var i = firstDiff; i < newLen; i++){
+        if(i < gutter.childNodes.length){
+            // 更新已有节点文本（行号即索引）
+            gutter.childNodes[i].textContent = String(i);
+        }else{
+            // 创建新节点并追加
+            var ln = document.createElement('div');
+            ln.className = 'gutter-line';
+            ln.appendChild(document.createTextNode(i));
+            gutter.appendChild(ln);
+        }
+    }
+
+    // 如果新长度比之前短，移除多余的节点
+    if(newLen < gutter.childNodes.length){
+        for(var j = gutter.childNodes.length - 1; j >= newLen; j--){
+            gutter.removeChild(gutter.childNodes[j]);
+        }
+    }
+
+    // 更新缓存的 lines（保留副本）
+    _lastNoteGutterPrevLines = lines.slice(0);
+
+    // 自动计算并设置 gutter 宽度，依据最大行号位数
+    try{
+        var maxIndex = Math.max(0, newLen - 1);
+        var digits = String(maxIndex).length;
+        // 每位大约 8px，再加 padding；限制最小/最大宽度
+        var w = Math.min(140, Math.max(20, digits * 7 + 12));
+        gutter.style.width = w + 'px';
+    }catch(e){
+        // ignore
+    }
 }
 
 var detail_data = {};
@@ -349,8 +396,8 @@ function TriggerNoteInput(){
 let vditor = { shown: false, obj: null};
 function ShowMdEditor(){
     let md_editor = $("#md-editor");
-    // 显示md编辑器，隐藏last-note
-    $("#last-note").hide();
+    // 显示md编辑器，隐藏 last-note 包裹容器（含行号）
+    $(".last-note-wrapper").hide();
     md_editor.show();
     $("#md-mode-btn").css('background-color', '#eee');
 
@@ -386,8 +433,8 @@ function ShowMdEditor(){
 }
 function HideMdEditor(update_last_note = true){
     let md_editor = $("#md-editor");
-    // 隐藏md编辑器
-    $("#last-note").show();
+    // 隐藏md编辑器，显示 last-note 包裹容器（含行号）
+    $(".last-note-wrapper").show();
     md_editor.hide();
     vditor.shown = false;
     $("#md-mode-btn").css('background-color', '');
@@ -435,93 +482,6 @@ function CopyText(text){
     }
 }
 
-function ShowDiff(pre_content, cur_content){
-    var color = '', span = null;
-
-    var display = $("<pre id='diff-info'></pre>");
-
-    var diff = Diff.diffChars(pre_content, cur_content),
-        fragment = document.createDocumentFragment();
-
-    diff.forEach(function(part){
-        // green for additions, red for deletions, grey for common parts
-        color = part.added ? 'green' : part.removed ? 'red' : '';
-        span = document.createElement('span');
-        if(color == ''){
-            span.appendChild(document.createTextNode(part.value));
-        }else{
-            // 设置class
-            span.className = 'diff-span ' + color;
-            span.appendChild(document.createTextNode(part.value.replace(/[\t ]/g, '^s').replace(/\n/g, '^n\n')));
-        }
-        fragment.appendChild(span);
-    });
-
-    display.append(fragment);
-    MyModal.Info(display, "note diff", '1000px', '600px', 'diff');
-
-    // 设置跳转到上一个及下一个变更的位置的按钮
-    var pre_btn = $("<button class='btn btn-default diff-pre-btn' title='前一个变更'><span class='glyphicon glyphicon-chevron-up'></span></button>");
-    var next_btn = $("<button class='btn btn-default diff-next-btn' title='后一个变更'><span class='glyphicon glyphicon-chevron-down'></button>");
-    cur_show_diff = null;
-    pre_btn.click(()=>{
-        var cur_span_parent = $("#diff-info");
-        var cur_span_parent_scroll_top = cur_span_parent.scrollTop();
-        var find_flag = false;
-        // 倒序遍历#diff-info内的span元素
-        $($("#diff-info .diff-span").toArray().reverse()).each(function(index, ele_dom){
-            // 遍历#diff-info内的span元素，找到位于可视区域的前一个span元素
-            var cur_span = $(ele_dom);
-            // 相对于可视区域的位置
-            var cur_span_top = cur_span.position().top;
-            if(cur_span_top < 0){
-                cur_span_parent.scrollTop(cur_span_parent_scroll_top + cur_span_top - 30);
-                cur_show_diff = cur_span;
-                find_flag = true;
-                return false;
-            }
-        });
-        if(!find_flag){
-            // 提示已无数据
-            MyModal.Alert("已到顶");
-        }
-    });
-    next_btn.click(()=>{
-        var cur_span_parent = $("#diff-info");
-        var cur_span_parent_scroll_top = cur_span_parent.scrollTop();
-        var find_flag = false;
-        // 倒序遍历#diff-info内的span元素
-        $("#diff-info .diff-span").each(function(index, ele_dom){
-            // 遍历#diff-info内的span元素，找到位于可视区域的前一个span元素
-            var cur_span = $(ele_dom);
-            // 相对于可视区域的位置
-            var cur_span_top = cur_span.position().top;
-            // cur_show_diff != cur_span_top 的判断有问题
-            if(cur_span_top > 0){
-                if(cur_span_top < cur_span_parent.height() && cur_show_diff && cur_show_diff.is(cur_span)){
-                    return; // continue
-                }
-                cur_span_parent.scrollTop(cur_span_parent_scroll_top + cur_span_top - 30);
-                cur_show_diff = cur_span;
-                find_flag = true;
-                return false;
-            }
-        });
-        if(!find_flag){
-            // 提示已无数据
-            MyModal.Alert("已到底");
-        }
-    });
-    display.append(pre_btn);
-    display.append(next_btn);
-
-    // 添加拷贝之前之后的内容按钮
-    var pre_copy_btn = $("<button class='btn btn-default diff-pre-copy-btn' title='拷贝原始数据内容'><span class='glyphicon glyphicon-file'> </span></button>");
-    pre_copy_btn.click(()=>{
-        CopyText(pre_content);
-    });
-    display.append(pre_copy_btn);
-}
 
 $(function(){
     // 从后台获取初始数据，并初始化界面
@@ -621,6 +581,12 @@ $(function(){
         ShowBoard('#last-note-board');
     });
 
+    // 处理默认笔记标题中的家图标点击事件
+    $("#default-note-title-btn").click(function(){
+        // 请求后台获取默认笔记ID
+        CallSys('show-default-note', null);
+    });
+
     $("#add-note-btn").click(()=>{
         if(IsLastModify()){
             MyModal.Alert("笔记已被修改，请先保存");
@@ -643,6 +609,9 @@ $(function(){
     });
 
     $("#last-note").on('input', MyTimer.Debounce(()=>{
+        var cur = $("#last-note").val();
+        // 更新行号
+        UpdateLastNoteGutter(cur);
         if(IsLastModify()){
             $("#edit-flag").show();
             $("#diff-note-btn").removeClass('disabled');
@@ -650,9 +619,16 @@ $(function(){
             $("#edit-flag").hide();
             $("#diff-note-btn").addClass('disabled');
         }
-    }, 300));
+    }, 200));
+
+    // 文本滚动时同步行号滚动
+    $("#last-note").on('scroll', function(){
+        var gt = $("#last-note-gutter");
+        gt.scrollTop($(this).scrollTop());
+    });
 
     $("#last-note").keydown(function(e){
+        // 笔记编辑特殊处理
         // last-note输入tab键时对选择的文本进行缩进处理
         if(e.keyCode == 9){
             if(e.shiftKey){

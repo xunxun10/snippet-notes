@@ -3,13 +3,6 @@ const MyLog = require('./util/my_log')
 const {MyDate, MyString} = require('./util/my_util')
 const {NoteSearcher} = require('./util/note_searcher')
 
-//var lunr = require('./lib/lunr/lunr-codepiano.js');
-var lunr = require('./lib/lunr/lunr.js');
-require('./lib/lunr/lunr.stemmer.support.js')(lunr);
-require('./lib/lunr/tinyseg.js')(lunr);
-require('./lib/lunr/lunr.zh.china.js')(lunr); // 中文 or any other language you want, 默认英文
-//require('./lib/lunr/lunr.multi.js')(lunr); // 支持多语言
-
 class Note{
     constructor(id, name, content) {
         this.id = id;
@@ -20,37 +13,13 @@ class Note{
 
 class Notes{
     static async Init(note_db_file){
-        // 初始化数据库时自动创建笔记表及笔记历史表
-        this.db = new MyDb(note_db_file, ["create table if not exists notes(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, content TEXT);","create table if not exists notes_history(id INTEGER PRIMARY KEY AUTOINCREMENT, note_id INTEGER, time DATE, name TEXT, content TEXT);"], true)
+        // 初始化数据库时自动创建笔记表、笔记历史表和笔记参数表
+        this.db = new MyDb(note_db_file, [
+            "create table if not exists notes(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, content TEXT);",
+            "create table if not exists notes_history(id INTEGER PRIMARY KEY AUTOINCREMENT, note_id INTEGER, time DATE, name TEXT, content TEXT);",
+            "create table if not exists note_params(id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT UNIQUE, value TEXT, description TEXT, create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP, update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"
+        ], true)
         let notes = await Notes.GetAllNotes();
-        this.IdxLunr(notes)
-    }
-
-    /**
-     * 重建搜索索引
-     */
-    static async IdxLunr(notes){
-        return; // 不再使用lunr搜索
-        /* init lunr */
-        this.idx = lunr(function () {
-            // use the language (zh)
-            //this.use(lunr.multiLanguage('ja', 'zh'));
-            this.use(lunr.zh);
-
-            // then, the normal lunr index initialization
-            this.ref('id');
-            this.field('title', { boost: 10 })
-            this.field('content')
-            this.metadataWhitelist = ['position']
-
-            for (var i=0; i<notes.length; i++) {
-                this.add({
-                    "id": notes[i]['id'],
-                    "title": notes[i]['name'],
-                    "content": notes[i]['content']
-                });
-            }
-        });
     }
 
     static async GetAllNotes(){
@@ -59,6 +28,52 @@ class Notes{
 
     static async GetAllNoteNames(){
         return await this.db.Query("select id,name from notes");
+    }
+
+    /**
+     * 获取笔记参数值
+     * @param {string} key - 参数键
+     * @returns {Promise<string|null>} 参数值，如果不存在则返回null
+     */
+    static async GetNoteParam(key){
+        let params = await this.db.Query("select value from note_params where key = ?", [key]);
+        return params.length > 0 ? params[0]['value'] : null;
+    }    
+
+    /**
+     * 设置笔记参数值
+     * @param {string} key - 参数键
+     * @param {string} value - 参数值
+     * @param {string} description - 参数描述
+     * @returns {Promise<void>}
+     */
+    static async SetNoteParam(key, value, description){
+        // 先检查是否存在
+        let existing = await this.db.Query("select id from note_params where key = ?", [key]);
+        if(existing.length > 0){
+            // 更新
+            await this.db.Run("update note_params set value = ?, update_time = CURRENT_TIMESTAMP where key = ?", [value, key]);
+        }else{
+            // 插入
+            await this.db.Run("insert into note_params (key, value, description) values (?, ?, ?)", [key, value, description]);
+        }
+    }
+
+    /**
+     * 获取默认笔记ID
+     * @returns {Promise<number|null>} 默认笔记ID，如果不存在则返回null
+     */
+    static async GetDefaultNoteId(){
+        return await this.GetNoteParam("default_note_id");
+    }
+
+    /**
+     * 设置默认笔记ID
+     * @param {number} note_id - 笔记ID
+     * @returns {Promise<void>}
+     */
+    static async SetDefaultNoteId(note_id){
+        await this.SetNoteParam("default_note_id", note_id, "默认打开的笔记ID");
     }
 
     /**
@@ -139,7 +154,7 @@ class Notes{
      * @param {Note} note 
      */
     static async RefreshIdx(note){
-        this.IdxLunr(await Notes.GetAllNotes())
+        return;
     }
 
     static async ReadNote(id){
@@ -234,6 +249,12 @@ class Notes{
         // 去掉首尾空格
         str = str.trim();
 
+        // 如果搜索字符串以:开头则表示当次只搜索当前日记
+        if(str.startsWith(':')){
+            str = str.substring(1).trim();
+            search_cur_note_flag = true;
+        }
+
         // 先使用 NoteSearcher 进行完全匹配搜索
         if (search_cur_note_flag){
             var notes = [];
@@ -279,17 +300,6 @@ class Notes{
                 note_slice.push.apply(note_slice, new_result);
             }
         }
-        
-        /*else if(!search_cur_note_flag){
-            // 使用lunr进行搜索
-            let lunr_result = this.idx.search(str)
-            for(let i = 0; i < lunr_result.length; ++i) {
-                //console.log("lunr match: " + JSON.stringify(lunr_result[i])); // DEBUG
-                var new_result = await this.Aggregate(lunr_result[i], share_params);
-                // 连接数组
-                note_slice.push.apply(note_slice, new_result);
-            }
-        }*/
 
         //console.log(JSON.stringify(note_slice));      // DEBUG
 

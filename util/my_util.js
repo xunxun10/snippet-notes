@@ -312,10 +312,17 @@ var MyTimer = class{
 }
 
 /**
- * Bootstrap模态框的封装
+ * Bootstrap模态框的封装类
+ * @class
+ * @global
  */
 var MyModal = class {
-
+    
+    /**
+     * 设置模态框的z-index为当前所有模态框最大值+1
+     * @static
+     * @param {string} modal_id - 模态框的选择器
+     */
     static SetMaxZIndex(modal_id){
         // 设置z-index为当前所有模态框最大值+1
         let max_z_index = 100;
@@ -333,13 +340,15 @@ var MyModal = class {
 
     /**
      * 展示信息及关闭按钮
-     * @param {*} content 
-     * @param {*} title 
-     * @param {*} width
-     * @param {*} height
-     * @param {*} id_str 用于指定modal的额外id标识
+     * @static
+     * @param {string} content - 模态框内容
+     * @param {string} [title='SnippetNotes Info'] - 模态框标题
+     * @param {number} [width=1000] - 模态框宽度
+     * @param {number} [height=600] - 模态框高度
+     * @param {string} [id_str=""] - 用于指定modal的额外id标识
+     * @returns {jQuery} - 模态框的jQuery对象
      */
-    static Info(content, title='SnippetNotes Info', width='1000px', height='600px', id_str="") {
+    static Info(content, title='SnippetNotes Info', width=1000, height=600, id_str="") {
         if($("#my-info" + id_str).length < 1){
             let modal = `
             <div class="modal fade" id="my-info${id_str}" tabindex="-1" role="dialog" aria-labelledby="my-info-label" aria-hidden="true">
@@ -365,7 +374,17 @@ var MyModal = class {
         return $("#my-info" + id_str);
     }
 
-    static Alert(content, ok_fun = null, width=null, height=null, title='SnippetNotes Info') {
+
+    /**
+     * 展示警告信息模态框
+     * @static
+     * @param {string} content - 模态框内容
+     * @param {Function} [ok_fun=null] - 确定按钮点击事件回调函数
+     * @param {number} [width=null] - 模态框宽度
+     * @param {number} [height=null] - 模态框高度
+     * @param {string} [title='SnippetNotes Info'] - 模态框标题
+     */
+    static Alert(content, ok_fun = null, width=600, height=100, title='SnippetNotes Info') {
         if($("#my-alert").length < 1){
             let modal = `
             <div class="modal fade" id="my-alert" tabindex="-1" role="dialog" aria-labelledby="my-alert-label" aria-hidden="true">
@@ -403,13 +422,16 @@ var MyModal = class {
 
     /**
      * 弹出确认模态框
-     * @param {*} content 弹框内容
-     * @param {*} ok_fun 确定按钮绑定的函数
-     * @param {*} cancele_fun 取消按钮绑定的函数
-     * @param {*} pre_btn_obj, 额外按钮信息，默认为null，格式为{ text: '按钮文本', fun: function(){...} }
-     * @param {*} title 弹框标题
+     * @static
+     * @param {string} content - 弹框内容
+     * @param {Function} [ok_fun=null] - 确定按钮点击事件回调函数
+     * @param {Function} [cancele_fun=null] - 取消按钮点击事件回调函数
+     * @param {Object} [pre_btn_obj=null] - 预置按钮对象，包含text及click属性
+     * @param {string} [title='SnippetNotes Confirm'] - 弹框标题
+     * @param {number} [width=1000] - 模态框宽度
+     * @param {number} [height=600] - 模态框高度
      */
-    static Confirm(content, ok_fun=null, cancele_fun=null, pre_btn_obj=null, title='SnippetNotes Confirm') {
+    static Confirm(content, ok_fun=null, cancele_fun=null, pre_btn_obj=null, title='SnippetNotes Confirm', width=600, height=100) {
         if($("#my-confirm").length < 1){
             let modal = `
             <div class="modal fade" id="my-confirm" tabindex="-1" role="dialog" aria-labelledby="my-confirm-label" aria-hidden="true">
@@ -421,9 +443,9 @@ var MyModal = class {
                         </div>
                         <div class="modal-body" id="my-confirm-content">在这里添加一些文本</div>
                         <div class="modal-footer">
-                            <button type="button" class="btn btn-default" data-dismiss="modal" id="my-confirm-third">待定</button>
-                            <button type="button" class="btn btn-default" data-dismiss="modal" id="my-confirm-ok">确定</button>
-                            <button type="button" class="btn btn-primary" data-dismiss="modal" id="my-confirm-cancel">取消</button>
+                            <button type="button" class="btn btn-default" data-dismiss="modal" id="my-confirm-cancel">取消</button>
+                            <button type="button" class="btn btn-default" id="my-confirm-third">待定</button>
+                            <button type="button" class="btn btn-primary" id="my-confirm-ok">确定</button>
                         </div>
                     </div>
                 </div>
@@ -447,26 +469,33 @@ var MyModal = class {
         }
 
         if(ok_fun){
+            // 如果有ok_fun函数，则绑定，并且不关闭模态框
             $("#my-confirm-ok").off("click").click(ok_fun);
         }else{
+            // 默认点击确定按钮关闭模态框
             $("#my-confirm-ok").off("click").click(function(){
                 $("#my-confirm").modal('hide');
             });
         }
 
+        // 由于data-dismiss属性，取消按钮始终会关闭模态框
+        $("#my-confirm-cancel").off("click");
         if(cancele_fun){
             $("#my-confirm-cancel").off("click").click(cancele_fun);
-        }else{
-            $("#my-confirm-cancel").off("click").click(function(){
-                $("#my-confirm").modal('hide');
-            });
         }
 
         $("#my-confirm").modal('show')
-        MyModal.Resize('#my-confirm');
+        MyModal.Resize('#my-confirm', width, height);
         MyModal.SetMaxZIndex('#my-confirm');
     }
 
+    /**
+     * 调整模态框大小
+     * @static
+     * @param {string} modal_id - 模态框的选择器
+     * @param {number} [width=null] - 宽度，数字
+     * @param {number} [height=null] - 高度，数字
+     */
     static Resize(modal_id, width=null, height=null){
         var $this = $(modal_id);
         var win_height = $(window).height();

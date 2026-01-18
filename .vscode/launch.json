@@ -1,16 +1,27 @@
 {
-    "version": "0.2.0",
-    "configurations": [
-      {
-        "name": "Run And Debug Main Process",
-        "type": "node",
-        "request": "launch",
-        "cwd": "${workspaceFolder}",
-        "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron",
-        "windows": {
-          "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron.cmd"
-        },
-        "args" : ["."]
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Launch Electron (integratedTerminal)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron",
+      "args": [
+        "--disable-gpu-shader-disk-cache",
+        "."
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "outputCapture": "std",
+      "windows": {
+        "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron.cmd"
+      },
+      "env": {
+        // 在这里设置专用于调试会话的变量
+        "VSCODE_DEBUG": "true",
+        "DEBUG_MODE": "1",
+        "NODE_ENV": "development", // 常见约定：区分开发/生产环境
       }
-    ]
+    }
+  ]
 }

@@ -35,7 +35,5 @@ npm run dist
 - sqlite3
 - jquery
 - vditor
-- lunr
-- nodejieba
 
 其他使用的开源社区产品参见 lib 及 package.json 的引用信息

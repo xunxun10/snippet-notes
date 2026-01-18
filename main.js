@@ -51,6 +51,10 @@ function CreateMenu(){
           ]
         },
         {
+            label: 'Compare',
+            click: () => { CallWeb('compare-text') }
+        },
+        {
             label: 'Help',
             submenu: [
                 {
@@ -76,14 +80,20 @@ function CreateMenu(){
     ])
 }
 
-function Init(){
+async function Init(){
     MyLog.Init(path.join(g_sys_params.local_data_dir, 'logs', 'snipnote'), true);
 
     g_conf = new MyConf(path.join(g_sys_params.local_data_dir, g_sys_params.config_file_name));
     g_sys_params.last_note = g_conf.GetOrSet('last_note', g_sys_params.default_note)
     g_sys_params.note_db_file = g_conf.GetOrSet('note_db_file', path.join(g_sys_params.local_data_dir, g_sys_params.note_db_file_name))
 
-    Notes.Init(g_sys_params.note_db_file)    
+    // 初始化数据库
+    await Notes.Init(g_sys_params.note_db_file);
+    
+    // 尝试从数据库获取默认笔记ID
+    let default_note_id = await Notes.GetDefaultNoteId();
+    g_sys_params.default_note = default_note_id ? default_note_id : g_sys_params.default_note;
+    console.log(MyDate.Now() + " found default note id: " + default_note_id);
 }
 
 // 修改笔记数据位置
@@ -103,13 +113,13 @@ async function ChgDbPath(){
             }
         }
         g_conf.Set('note_db_file', new_path)
-        Init();
+        await Init();
     }
 }
 
 G_MAIN_WINDOW = null
 
-const createWindow = () => {
+const createWindow = async () => {
     // 设置icon路径，windows与arm版本路径不同
     if(is_windows){
         var icon_path = path.join(__dirname, 'res/img/snippet-note.ico')
@@ -159,7 +169,7 @@ const createWindow = () => {
         }
     })*/
 
-    Init()
+    await Init()
 
     // 创建菜单
     Menu.setApplicationMenu(CreateMenu())
@@ -252,14 +262,16 @@ function HandleWebMsg(event, msg){
     try{
         var ProcessWebCall = {
             "get-last-note":async function(v){
+                let note_id;
                 if(v != null){
                     // 获取指定id的note
-                    let note_id = v;
+                    note_id = v;
                     g_sys_params.last_note = g_conf.Set('last_note', note_id)
-                    var note = await Notes.ReadNote(note_id);
                 }else{
-                    var note = await Notes.ReadNote(g_sys_params.last_note);
+                    // 优先使用上次打开的笔记ID，如果不存在则使用默认笔记ID
+                    note_id = g_sys_params.last_note || g_sys_params.default_note;
                 }
+                var note = await Notes.ReadNote(note_id);
                 CallWeb('modify-last-note', note)
             },
             "search":async function(search_obj){
@@ -303,6 +315,16 @@ function HandleWebMsg(event, msg){
             "get-note-his-diff":async function(v){
                 let his_note = await Notes.GetNoteHistory(v);
                 CallWeb('show-note-his-diff', his_note)
+            },
+            "set-default-note":async function(v){
+                let note_id = v.note_id;
+                await Notes.SetDefaultNoteId(note_id);
+                g_sys_params.default_note = note_id;
+                console.log(MyDate.Now() + " set default note id: " + note_id);
+            },
+            "show-default-note":async function(v){
+                // 返回默认笔记ID给前端
+                CallWeb('show-default-note', g_sys_params.default_note);
             },
         }
         ProcessWebCall[msg.type](value);

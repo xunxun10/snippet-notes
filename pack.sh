@@ -46,9 +46,11 @@ elif [ `uname -m` == "aarch64" ]; then
     cd $S_DIR/dist;
 
     Info "开始将 linux-arm64-unpacked 打包为 snippet-notes-linux-arm64-$version.tar.gz ...";
-    rm -rf snippet-notes-linux-arm64*.tar.gz snippet-notes-linux-arm64;
+    rm -rf *.AppImage *.tar.gz *.zip snippet-notes-linux-arm64;
     mv linux-arm64-unpacked snippet-notes-linux-arm64 && 
         tar -zcf snippet-notes-linux-arm64-$version.tar.gz snippet-notes-linux-arm64 &&
+        split -b 40m snippet-notes-linux-arm64-$version.tar.gz snippet-notes-linux-arm64-$version.tar.gz.part. &&
+        rename 's/$/.zip/' snippet-notes-linux-arm64-$version.tar.gz.part.* &&
         mv snippet-notes-linux-arm64 linux-arm64-unpacked &&
         Info "已经成功将 linux-arm64-unpacked 打包为 snippet-notes-linux-arm64-$version.tar.gz";
     CheckOption "压缩程序文件失败";

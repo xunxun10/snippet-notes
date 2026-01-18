@@ -109,7 +109,6 @@ body {
 }
 #last-note{
     height:calc( 100% - 34px );
-    margin-top: -1px;
     line-height: 25px;
 }
 .equal-width-font{
@@ -127,6 +126,12 @@ body {
     user-select: none;
     color: gray;
     /*border-bottom-color: transparent;*/
+}
+
+/* 为默认笔记标题中的家图标添加样式 */
+#default-note-title-btn .glyphicon-home {
+    margin-right: 5px;
+    font-size: 12px;
 }
 .edit-panel-btn{
     margin-top: -1px;
@@ -146,14 +151,66 @@ body {
     height: 100%;
     width: 100%;
 }
-
+.diff-line-break{
+    /*零宽的换行符，设置背景图片为换行箭头*/
+    display: inline-block;
+    width: 15px;
+    height: 12px;
+    background-image: url(img/font-icon.png);
+    background-size: 42px 42px;
+    background-repeat: no-repeat;
+    background-position: 2px 3px;
+}
 #diff-info .green{
-    background-color: green;
+    background-color: rgb(101, 243, 101);
 }
 
 #diff-info .red{
     background-color: red;
     /*中划线 text-decoration: line-through; */
+}
+
+/* 行号样式（仅显示在最终版本的新增/修改行前） */
+.diff-line-no{
+    display: inline-block;
+    width: 40px;
+    text-align: right;
+    color: #666;
+    font-size: 12px;
+    margin-right: 8px;
+    user-select: none;
+}
+
+/* 两列 diff 视图：左侧为行号，右侧为内容 */
+.diff-view{
+    display: flex;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+}
+.diff-gutter{
+    min-width: 20px;
+    padding: 6px 8px 6px 6px;
+    background: #f5f5f5;
+    border-right: 1px solid #e6e6e6;
+    text-align: right;
+    font-size: 12px;
+    color: #666;
+    user-select: none; /* 避免复制时带上行号 */
+}
+.diff-gutter-line{
+    line-height: 18px;
+    height: 18px;
+    overflow: hidden;
+}
+.diff-content{
+    flex: 1;
+    padding: 6px 10px;
+    white-space: pre-wrap;
+}
+.diff-content-line{
+    line-height: 18px;
+    height: 18px;
 }
 
 #search-res-board{
@@ -193,7 +250,7 @@ body {
 }
 .res-item{
   min-height: 50px;
-  max-height: 250px;
+  max-height: 1000px;
   border:none;
   margin: 0px;
 }
@@ -251,11 +308,56 @@ legend {
     filter:grayscale(100%);
 }
 
-.diff-pre-btn, .diff-next-btn, .diff-pre-copy-btn{
+/* 左侧行号列用于 #last-note */
+.last-note-wrapper{
+    display: flex;
+    width: 100%;
+    height: calc(100% - 34px);
+    align-items: stretch;
+    border: 1px solid black;
+    border-radius: 0 4px 4px 0;
+    margin-top: -1px;
+    line-height: 22px; /* 与 gutter 行高一致 */
+}
+
+/* gutter 与 textarea 边框整合：
+   - 取消 textarea 的左边框
+   - 在 gutter 显示左边框和下边框，右边框淡化
+   - 行号高度与 textarea 行高保持一致 */
+#last-note-board .last-note-gutter{
+    min-width: 20px;
+    padding: 7px 5px;
+    background: transparent;
+    /* 右边框稍淡一点，作为分隔 */
+    border-right: 1px solid rgba(0,0,0,0.06);
+    text-align: right;
+    font-size: 12px;
+    color: rgba(0,0,0,0.55);
+    overflow: hidden;
+    user-select: none;
+    line-height: 22px; /* 与 gutter 行高一致 */
+}
+.last-note-gutter .gutter-line{
+    height: 22px;
+    overflow: hidden;
+}
+#last-note{
+    flex: 1;
+    resize: none;
+    box-sizing: border-box;
+    height: calc(100% - 12px);
+    overflow: auto;
+    border: none; /* 取消边框 */
+    padding: 6px 10px;
+    line-height: 22px; /* 与 gutter 行高一致 */
+}
+
+.diff-btns{
     /* 固定显示在右侧中间位置 */
     position: fixed;
-    top: calc(50% - 20px);
+    top: calc(50% - 65px);
     right: 40px;
+    width: 45px;
     z-index: 1000;
     /* 透明度 */
     opacity: 0.5;
@@ -265,11 +367,8 @@ legend {
     -webkit-transition: all 0.3s ease-in-out;
     transition: all 0.3s ease-in-out;
 }
-.diff-next-btn{
-    top: calc(50% + 20px);
-}
-.diff-pre-copy-btn{
-    top: calc(50% + 60px);
+.diff-btns button{
+    margin-bottom: 10px;
 }
 #note-history-desc{
     margin-bottom: 15px;
@@ -280,9 +379,108 @@ legend {
     min-width: 300px;
 }
 
+#diff-tool-left, #diff-tool-right{
+    width: calc(50% - 5px);
+    padding: 5px;
+    height: 480px;
+    overflow-y: auto;
+    float: left;
+}
+#diff-tool-left{
+    margin-right: 8px;
+}
 
 /*帮助部分样式*/
 .usage-head{
     font-weight: 800;
     margin-bottom: 10px;
+}
+
+/* 所有笔记界面样式 */
+.note-item-container {
+    display: inline-block;
+    align-items: center;
+    margin-bottom: 5px;
+    gap: 5px;
+    position: relative;
+}
+
+/* 右键菜单样式 */
+.context-menu {
+    background-color: white;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    min-width: 120px;
+    padding: 5px 0;
+}
+
+/* 右键菜单列表样式 */
+.context-menu ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+/* 右键菜单项样式 */
+.context-menu li {
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 12px;
+    color: #495057;
+    transition: all 0.2s ease;
+}
+
+/* 右键菜单项悬停样式 */
+.context-menu li:hover {
+    background-color: #007bff;
+    color: white;
+}
+
+/* diff工具面板选项样式 */
+#diff-panel-options{
+    width: 100%;
+    float: left;
+    margin-top: 5px;
+    padding: 2px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: #f9f9f9;
+}
+.diff-panel-options-group{
+    display: inline-block;
+    height: 36px;
+    vertical-align: middle;
+}
+
+#diff-mode-group{
+    float: right;
+    padding-top: 2px;
+}
+
+/* diff 工具面板按钮高度及对齐调整 */
+#diff-panel-options .diff-mode-btn{
+    line-height: 30px;
+    padding: 0 8px;
+    font-size: 12px;
+    vertical-align: middle;
+}
+
+/* 使 checkbox-group 内元素与按钮高度一致并垂直居中 */
+#diff-panel-options .checkbox-group{
+    display: inline-flex;
+    align-items: center;
+}
+#diff-panel-options .checkbox-group label{
+    display: inline-flex;
+    align-items: center;
+    margin: 0 8px 0 0;
+}
+#diff-panel-options input{
+    margin-top: 0px;
+}
+#diff-panel-options .checkbox-group input[type="checkbox"]{
+    width: 14px;
+    height: 14px;
+    margin-right: 6px;
 }
