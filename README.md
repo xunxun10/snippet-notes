@@ -25,8 +25,30 @@
 
 
 ## 编译
-```
+
+### 快速编译
+```bash
+# 编译Windows平台
 npm run dist
+
+# 编译所有平台 (Windows, Linux x86, ARM)
+bash pack.sh all
+```
+
+### 开发文档
+
+完整的开发指导和技术文档位于 [docs/](docs/) 目录：
+
+- **[快速开始](docs/SYSTEM_INVENTORY.md)** - 系统现状和使用指南
+- **[完整指南](docs/NODE_MODULES_COMPLETE_GUIDE.md)** - Node Modules 快照管理系统
+- **[多平台编译](docs/MULTI_PLATFORM_BUILD_GUIDE.md)** - 跨平台构建指南
+- **[快速参考](docs/NODE_MODULES_QUICK_REFERENCE.md)** - 常用命令和 FAQ
+
+更多文档类型和详细导航，请见 [docs/README.md](docs/README.md)
+
+### 系统诊断
+```bash
+bash scripts/diagnose-system.sh
 ```
 
 ## 鸣谢
