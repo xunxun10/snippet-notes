@@ -7,7 +7,9 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "electron .",
     "dist": "electron-builder --win --x64",
-    "arm": "electron-builder --linux --arm64"
+    "arm": "electron-builder --linux --arm64",
+    "linux.x86": "electron-builder --linux --x64",
+    "all": "npm run dist && npm run arm && npm run linux.x86"
   },
   "author": "",
   "license": "ISC",
@@ -45,7 +47,7 @@
       "icon": "res/img/snippet-note.ico"
     },
     "linux":{
-      "target": "AppImage",
+      "target": "dir",
       "icon": "res/img/snippet-note.png"
     },
     "extraResources": [
