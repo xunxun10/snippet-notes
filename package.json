@@ -44,7 +44,7 @@
       "allowToChangeInstallationDirectory": true
     },
     "win": {
-      "target": "nsis",
+      "target": "dir",
       "icon": "res/img/snippet-note.ico"
     },
     "linux":{

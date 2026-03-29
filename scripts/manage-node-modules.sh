@@ -197,9 +197,9 @@ prepare_build_environment() {
     # 从 vanilla 恢复基础环境
     restore_from_vanilla || return 1
     
-    # 执行平台特定的 rebuild
-    info "为 $target 重建 native modules..."
-    node "$SCRIPT_DIR/rebuild-native.js" "$target" || true
+    # 执行平台特定的 rebuild（以移除不同平台编译，同平台下electron-builder 会自动处理 native modules 重建，无需手动调用）
+    #info "为 $target 重建 native modules..."
+    #node "$SCRIPT_DIR/rebuild-native.js" "$target" || true
     
     # 保存重建后的结果为新快照 (使用 copy 保留 node_modules)
     save_platform_info "$target"

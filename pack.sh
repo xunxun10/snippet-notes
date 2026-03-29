@@ -56,9 +56,9 @@ function Usage(){
     echo "  bash $0 <target>";
     echo "";
     echo "支持的 target:";
-    for target in win linux.x86 arm all; do
-        if [ "$target" == "all" ]; then
-            echo "  all        - 编译并打包所有版本";
+    for target in win linux.x86 arm linux; do
+        if [ "$target" == "linux" ]; then
+            echo "  linux      - 编译并打包 Linux x86 和 ARM64 版本";
         else
             echo "  $target        - 编译并打包 ${PLATFORM_DESC[$target]} 版本";
         fi
@@ -68,7 +68,7 @@ function Usage(){
     echo "  bash $0 win          - 仅编译 Windows 版本";
     echo "  bash $0 linux.x86    - 仅编译 Linux x86 版本";
     echo "  bash $0 arm          - 仅编译 Linux ARM64 版本";
-    echo "  bash $0 all          - 编译所有版本";
+    echo "  bash $0 linux        - 编译 Linux x86 和 ARM64 版本";
     echo "";
     echo "项目信息:";
     echo "  名称: $PROJECT_NAME";
@@ -200,6 +200,16 @@ function TryBuild(){
     return 0;
 }
 
+
+# 优雅地计算当前系统类型
+SYS_TYPE="unknown"
+case "$(uname -s)" in
+    Linux)
+        SYS_TYPE="linux";;
+    CYGWIN*|MINGW*|MSYS*|Windows_NT)
+        SYS_TYPE="windows";;
+esac
+
 # 检查是否提供了 target 参数
 if [ -z "$1" ]; then
     Error "缺少必要参数: target";
@@ -209,69 +219,98 @@ fi
 
 TARGET=$1
 
-case $TARGET in
-    all)
-        Info "开始执行所有编译操作...";
-        # 清理旧编译产物
-        for target in win linux.x86 arm; do
-            output_pattern="${OUTPUT_NAMES[$target]}-$PROJECT_VERSION*"
-            rm -rf $S_DIR/dist/$output_pattern
-        done
-        rm -rf $S_DIR/dist/*.blockmap $S_DIR/dist/*.exe
-        
-        # 编译和打包所有版本
-        for target in win linux.x86 arm; do
-            rebuild_arch=""
-            [ "$target" == "win" ] && rebuild_arch="x64"
-            [ "$target" == "linux.x86" ] && rebuild_arch="x64"
-            [ "$target" == "arm" ] && rebuild_arch="arm64"
-            
-            if Build "$target" "$rebuild_arch"; then
-                if Pack "$target"; then
-                    : # Success
-                else
-                    Error "${PLATFORM_DESC[$target]} 打包失败";
-                fi
-            else
-                Info "⚠ ${PLATFORM_DESC[$target]} 编译失败，已跳过";
-            fi
-        done
-        
-        Info "所有版本打包完成";
-        ;;
-    
-    win|linux.x86|arm)
-        desc=${PLATFORM_DESC[$TARGET]}
-        Info "开始编译 $desc 版本...";
-        
-        # 清理旧编译产物
-        output_pattern="${OUTPUT_NAMES[$TARGET]}-$PROJECT_VERSION*"
-        rm -rf $S_DIR/dist/$output_pattern
-        
-        # 清理 exe 和 blockmap 文件（Windows）
-        if [ "$TARGET" == "win" ]; then
-            rm -rf $S_DIR/dist/*.blockmap $S_DIR/dist/*.exe
-        fi
-        
-        # 确定 rebuild arch
-        rebuild_arch=""
-        [ "$TARGET" == "win" ] && rebuild_arch="x64"
-        [ "$TARGET" == "linux.x86" ] && rebuild_arch="x64"
-        [ "$TARGET" == "arm" ] && rebuild_arch="arm64"
-        
-        if Build "$TARGET" "$rebuild_arch"; then
-            if Pack "$TARGET"; then
-                Info "✓ $desc 版本编译和打包完成";
-            else
-                Error "$desc 打包失败";
-                exit 1;
-            fi
+# 各平台编译打包流程封装为函数
+function BuildWin() {
+    if [ "$SYS_TYPE" != "windows" ]; then
+        Error "target 'win' 仅允许在 Windows 主机上编译，当前主机为 $SYS_TYPE，已禁止。";
+        exit 1;
+    fi
+    desc=${PLATFORM_DESC[win]}
+    Info "开始编译 $desc 版本...";
+    output_pattern="${OUTPUT_NAMES[win]}-$PROJECT_VERSION*"
+    rm -rf $S_DIR/dist/$output_pattern
+    rm -rf $S_DIR/dist/*.blockmap $S_DIR/dist/*.exe
+    rebuild_arch="x64"
+    if Build "win" "$rebuild_arch"; then
+        if Pack "win"; then
+            Info "✓ $desc 版本编译和打包完成";
         else
-            Error "$desc 编译失败";
+            Error "$desc 打包失败";
             exit 1;
         fi
+    else
+        Error "$desc 编译失败";
+        exit 1;
+    fi
+}
+
+function BuildLinuxX86() {
+    desc=${PLATFORM_DESC[linux.x86]}
+    Info "开始编译 $desc 版本...";
+    output_pattern="${OUTPUT_NAMES[linux.x86]}-$PROJECT_VERSION*"
+    rm -rf $S_DIR/dist/$output_pattern
+    rebuild_arch="x64"
+    if Build "linux.x86" "$rebuild_arch"; then
+        if Pack "linux.x86"; then
+            Info "✓ $desc 版本编译和打包完成";
+        else
+            Error "$desc 打包失败";
+            exit 1;
+        fi
+    else
+        Error "$desc 编译失败";
+        exit 1;
+    fi
+}
+
+function BuildArm() {
+    desc=${PLATFORM_DESC[arm]}
+    Info "开始编译 $desc 版本...";
+    output_pattern="${OUTPUT_NAMES[arm]}-$PROJECT_VERSION*"
+    rm -rf $S_DIR/dist/$output_pattern
+    rebuild_arch="arm64"
+    if Build "arm" "$rebuild_arch"; then
+        if Pack "arm"; then
+            Info "✓ $desc 版本编译和打包完成";
+        else
+            Error "$desc 打包失败";
+            exit 1;
+        fi
+    else
+        Error "$desc 编译失败";
+        exit 1;
+    fi
+}
+
+function BuildLinuxAll() {
+    Info "开始执行 Linux x86 和 ARM64 编译操作...";
+    for target in linux.x86 arm; do
+        output_pattern="${OUTPUT_NAMES[$target]}-$PROJECT_VERSION*"
+        rm -rf $S_DIR/dist/$output_pattern
+    done
+    for target in linux.x86 arm; do
+        if [ "$target" == "linux.x86" ]; then
+            BuildLinuxX86
+        elif [ "$target" == "arm" ]; then
+            BuildArm
+        fi
+    done
+    Info "Linux x86 和 ARM64 版本打包完成";
+}
+
+case $TARGET in
+    linux)
+        BuildLinuxAll
         ;;
-    
+    win)
+        BuildWin
+        ;;
+    linux.x86)
+        BuildLinuxX86
+        ;;
+    arm)
+        BuildArm
+        ;;
     *)
         Error "未知的 target: $TARGET";
         Usage;
