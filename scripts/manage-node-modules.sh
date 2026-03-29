@@ -9,7 +9,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-SNAPSHOTS_DIR="$PROJECT_ROOT/.node_modules_snapshots"
+SNAPSHOTS_DIR="$PROJECT_ROOT/dist/.node_modules_snapshots"
 
 # 颜色输出
 RED='\033[0;31m'
@@ -38,11 +38,10 @@ function error() {
 # 核心函数
 ##############################################################################
 
-# 检查当前平台 (优先从 node_modules/.platform 读取，避免外部状态不同步)
+# 检查当前平台 (优先从 node_modules/.platform 读取)
 check_current_platform() {
   local platform_file="$PROJECT_ROOT/node_modules/.platform"
   
-  # 优先读取 node_modules 内的 .platform 文件
   if [ -f "$platform_file" ]; then
     cat "$platform_file"
   else
@@ -50,13 +49,15 @@ check_current_platform() {
   fi
 }
 
-# 记录当前平台到 node_modules/.platform (简化状态管理，一个文件即可)
+# 记录当前平台到 node_modules/.platform
 save_platform_info() {
   local platform=$1
   local platform_file="$PROJECT_ROOT/node_modules/.platform"
   
   if [ -d "$PROJECT_ROOT/node_modules" ]; then
     echo "$platform" > "$platform_file"
+  else
+    warning "无法保存平台信息：node_modules 不存在"
   fi
 }
 
@@ -78,22 +79,20 @@ initialize_vanilla_backup() {
   mkdir -p "$SNAPSHOTS_DIR"
   info "首次初始化：为当前 node_modules 创建 vanilla 基础备份..."
   
-  # 一次性 cp 创建 vanilla 备份（后续所有操作都使用 mv 快速）
-  cp -r "$PROJECT_ROOT/node_modules" "$vanilla_dir"
-  
-  local size=$(du -sh "$vanilla_dir" | cut -f1)
-  echo "$size" > "$SNAPSHOTS_DIR/node_modules.vanilla.size"
-  
+  # 提醒用户输入正确的平台名称以便后续使用
+  read -p "请输入当前 node_modules 对应的平台名称（如 win、linux.x86、arm 等）: " cur_platform_name
+  save_platform_info "$cur_platform_name"
+
+  save_snapshot "vanilla" "copy" || return 1
+
   success "vanilla 基础备份完成: $size (后续操作将使用快速的 mv 替换)"
   return 0
 }
 
-# 记录 vanilla 作为当前平台信息
-  save_platform_info "vanilla"
-
 # 保存当前 node_modules 到快照 (使用 mv 快速交换)
 save_snapshot() {
   local target=$1
+  local mode=${2:-move}  # 默认 mv，可选 copy
   local backup_dir="$SNAPSHOTS_DIR/node_modules.$target"
   
   if [ ! -d "$PROJECT_ROOT/node_modules" ]; then
@@ -104,14 +103,18 @@ save_snapshot() {
   # 移除旧备份
   [ -d "$backup_dir" ] && rm -rf "$backup_dir"
   
-  # 使用 mv 快速移动 (不是 cp)
-  mv "$PROJECT_ROOT/node_modules" "$backup_dir"
+  if [ "$mode" = "copy" ]; then
+    # 使用 cp 复制 (保留原 node_modules)
+    cp -r "$PROJECT_ROOT/node_modules" "$backup_dir"
+  else
+    # 使用 mv 快速移动
+    mv "$PROJECT_ROOT/node_modules" "$backup_dir"
+  fi
   
   local size=$(du -sh "$backup_dir" | cut -f1)
   echo "$size" > "$SNAPSHOTS_DIR/node_modules.$target.size"
   
   success "已保存 $target 快照 ($size)"
-  save_platform_info "$target"
 }
 
 # 恢复 node_modules 从快照 (使用 mv 快速交换)
@@ -176,7 +179,7 @@ prepare_build_environment() {
     
     # 如果当前有 node_modules，先保存当前平台
     if [ -d "$PROJECT_ROOT/node_modules" ] && [ "$current" != "unknown" ]; then
-      warning "保存当前的 $current 快照后切换"
+      info "保存当前的 $current 快照后切换"
       save_snapshot "$current" || return 1
     fi
     
@@ -198,8 +201,8 @@ prepare_build_environment() {
     info "为 $target 重建 native modules..."
     node "$SCRIPT_DIR/rebuild-native.js" "$target" || true
     
-    # 保存重建后的结果为新快照
-    save_snapshot "$target" || return 1
+    # 保存重建后的结果为新快照 (使用 copy 保留 node_modules)
+    save_platform_info "$target"
   fi
 }
 

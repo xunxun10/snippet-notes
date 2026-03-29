@@ -31,11 +31,7 @@
     "directories": {
       "output": "dist"
     },
-    "asar": false,
-    "files": [
-      "!node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme,*.png,*.jpg,*.gif,*.gyp,*.gypi,*.md5,appveyor.yml,.travis.yml,circle.yml,npm-shrinkwrap.json,*.tar.gz,.git,.gitignore,.gitattributes}",
-      "!node_modules/.bin"
-    ],
+    "asar": true,
     "nsis": {
       "shortcutName": "snipnote",
       "oneClick": false,

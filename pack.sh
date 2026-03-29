@@ -98,6 +98,13 @@ function Build(){
         return 1;
     }
     
+    # 确保 devDependencies 已安装
+    Info "安装 devDependencies...";
+    npm install || {
+        Error "安装依赖失败";
+        return 1;
+    }
+    
     TryBuild "$build_cmd" "$S_DIR/dist/${BUILD_DIRS[$target]}" "$desc";
 }
 
