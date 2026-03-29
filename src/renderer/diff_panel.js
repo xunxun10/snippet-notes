@@ -4,7 +4,7 @@
  * @param {*} cur_content 当前版本的内容
  * @param {*} diff_mode 差异模式，line表示按行对比，word表示按单词对比，char表示按字符对比，默认按行对比
  */
-function ShowDiff(pre_content, cur_content, diff_mode='line'){
+function ShowDiff(pre_content, cur_content, title='note diff', diff_mode='line'){
     var color = '', span = null;
 
     // 如果内容相同则弹框提示
@@ -24,6 +24,11 @@ function ShowDiff(pre_content, cur_content, diff_mode='line'){
     var finalLineNo = 1;
 
     var diff;
+    // 如果cur_content末尾不是换行符，则两边各增加一个换行符
+    if(!/^\r?\n$/.test(cur_content)){
+        pre_content += '\n';
+        cur_content += '\n';
+    }
     if(diff_mode == 'char'){
         diff = Diff.diffChars(pre_content, cur_content);
     }else if(diff_mode == 'word'){
@@ -36,7 +41,7 @@ function ShowDiff(pre_content, cur_content, diff_mode='line'){
     var _diff_saved_settings = window._diff_saved_settings;
 
     // render 函数：根据 filterRegexStr 与 showOnlyChanges 设置渲染内容
-    function render(filterRegexStr, showOnlyChanges){
+    function render(filterRegexStr, showOnlyChanges, excludeRegexStr){
         // 清空容器
         gutter.innerHTML = '';
         content.innerHTML = '';
@@ -52,57 +57,83 @@ function ShowDiff(pre_content, cur_content, diff_mode='line'){
             }
         }
 
+        // 预编译排除正则（如果有）
+        var excludeRe = null;
+        if(excludeRegexStr && excludeRegexStr.length > 0){
+            try{
+                excludeRe = new RegExp(excludeRegexStr);
+            }catch(e){
+                // 如果正则非法，则忽略过滤
+                excludeRe = null;
+            }
+        }
+
         // 行号计数器：针对最终版本（cur_content）所有非-removed 的行都参与计数（包括不变的数据）
         var localFinalLineNo = 1;
+        var linePrefix = '';  // 存储同行内删除数据前的非删除内容，因为一行可能包含多个part
 
         diff.forEach(function(part){
             var partColor = part.added ? 'green' : part.removed ? 'red' : '';
             var lines = part.value.split(/\r?\n/);
-            if(lines.length > 0 && /\r?\n$/.test(part.value)){
-                lines.pop();
+            // Check if the part ends with a newline - if not, the last element in lines is not a complete line
+            var partEndsWithNewline = /\r?\n$/.test(part.value);
+            if(lines.length > 1 && partEndsWithNewline){
+                lines.pop(); // Remove the empty string after the final newline
             }
             var isRemoved = !!part.removed;
 
             for(var i = 0; i < lines.length; i++){
                 var cur_line = lines[i];
 
-                // 当前行在最终版本的行号（仅在非-removed 时递增）
+                // 判断当前行是否含有换行符（以换行符结束）
+                var isLineEnd = (i < lines.length - 1) || partEndsWithNewline;
+                var isEmptyLineNo =  false;
+
+                // 当前行在最终版本的行号
                 var currentLineNo = null;
-                if(!isRemoved){
-                    currentLineNo = localFinalLineNo;
-                    localFinalLineNo++;
+                // 删除行不显示行号，如果是删除行但linePrefix有值，也需要显示行号（linePrefix表示删除行前还有非删除的内容）
+                if(isLineEnd){
+                    if (!isRemoved || linePrefix !== ''){
+                        currentLineNo = localFinalLineNo;
+                        localFinalLineNo++;
+                    }else{
+                        isEmptyLineNo = true;
+                    }
                 }
 
-                // 过滤与“仅显示变更”判定（注意：即便被过滤，行号仍按未过滤数据计算）
+                // 过滤与"仅显示变更"判定（注意：即便被过滤，行号仍按未过滤数据计算）
                 var shouldRender = true;
                 if(re){
                     // 对文本进行匹配（对 removed/added/unchanged 均使用该文本）
                     shouldRender = re.test(cur_line);
+                }
+                // 排除正则过滤：满足排除正则的行不显示
+                if(excludeRe && excludeRe.test(cur_line)){
+                    shouldRender = false;
                 }
                 if(showOnlyChanges && partColor === ''){
                     shouldRender = false;
                 }
 
                 if(!shouldRender){
-                    // 即不渲染该行，但如果是非 removed，则行号计数已增加
+                    // 即不渲染该行，但如果是非 removed 且是完整行，则行号计数已增加
                     continue;
                 }
 
-                // gutter: 只有非-removed 的行显示行号，removed 显示占位
-                var gutterLine = document.createElement('div');
-                gutterLine.className = 'diff-gutter-line';
-                if(!isRemoved){
-                    gutterLine.appendChild(document.createTextNode(currentLineNo));
-                }else{
-                    gutterLine.appendChild(document.createTextNode(''));
+                if(isLineEnd){
+                    // gutter: 只有非-removed 的完整行显示行号，removed 或不完整行显示占位
+                    var gutterLine = document.createElement('div');
+                    gutterLine.className = 'diff-gutter-line';
+                    if(!isEmptyLineNo){
+                        gutterLine.appendChild(document.createTextNode(currentLineNo));
+                    }else{
+                        gutterLine.appendChild(document.createTextNode(''));
+                    }
+                    gutter.appendChild(gutterLine);
                 }
-                gutter.appendChild(gutterLine);
 
-                // content: 每一行作为独立元素
-                var contentLine = document.createElement('div');
-                contentLine.className = 'diff-content-line';
                 if(partColor === ''){
-                    contentLine.appendChild(document.createTextNode(cur_line));
+                    content.appendChild(document.createTextNode(cur_line));
                 }else{
                     var inner = document.createElement('span');
                     inner.className = 'diff-span ' + partColor;
@@ -113,17 +144,27 @@ function ShowDiff(pre_content, cur_content, diff_mode='line'){
                     }else{
                         inner.appendChild(document.createTextNode(cur_line));
                     }
-                    contentLine.appendChild(inner);
+                    content.appendChild(inner);
                 }
-                content.appendChild(contentLine);
+                // Add line break after each line except for the last line in a part that doesn't end with newline
+                if(isLineEnd){
+                    content.appendChild(document.createElement('br'));
+                    linePrefix = '';
+                }else{
+                    if(!isRemoved){
+                        linePrefix += cur_line;
+                    }
+                }
             }
         });
 
         // 根据最终行号计算 gutter 宽度（按数字位数估算）
         var maxLine = Math.max(1, localFinalLineNo - 1);
         var digits = String(maxLine).length;
-        var gutterWidth = Math.min(200, Math.max(20, digits * 9 + 12));
-        gutter.style.width = gutterWidth + 'px';
+        var gutterWidth = Math.min(200, Math.max(20, digits * 8 + 7));
+
+        // 计算 gutter 高度，确保背景色和边框完整显示
+        var gutterHeight = gutter.children.length * 20 + 12; // 每行20px
 
         // 将容器插入显示面板（如果尚未插入）
         // `display` 是 jQuery 对象，使用其 DOM 元素进行 contains/append 操作
@@ -138,13 +179,19 @@ function ShowDiff(pre_content, cur_content, diff_mode='line'){
                 display.append(content);
             }
         }
+
+        // 在添加到DOM后设置宽度和高度，确保样式生效
+        gutter.style.width = gutterWidth + 'px';
+        gutter.style.flex = '0 0 ' + gutterWidth + 'px'; // 设置flex属性以确保在flex容器中正确显示
+        gutter.style.height = gutterHeight + 'px';
     }
 
     // 首次渲染：使用已保存设置（如果有），否则显示全部
     var initRegex = _diff_saved_settings.regex || '';
     var initOnly = !!_diff_saved_settings.onlyChanges;
-    render(initRegex, initOnly);
-    MyModal.Info(display, "note diff", '1000px', '600px', 'diff');
+    var initExclude = _diff_saved_settings.excludeRegex || '';
+    render(initRegex, initOnly, initExclude);
+    MyModal.Info(display, title, '1000px', '600px', 'diff');
 
     // 设置跳转到上一个及下一个变更的位置的按钮
     var diff_btns = $("<div class='diff-btns'></div>");
@@ -156,11 +203,28 @@ function ShowDiff(pre_content, cur_content, diff_mode='line'){
 
     var settings_btn = $("<button class='btn btn-default diff-settings-btn' title='显示/过滤设置'><span class='glyphicon glyphicon-cog'></span></button>");
 
+    // 根据设置状态更新图标
+    function updateSettingsIcon(){
+        var hasSettings = (_diff_saved_settings.regex || '') !== '' ||
+                          (_diff_saved_settings.excludeRegex || '') !== '' ||
+                          !!_diff_saved_settings.onlyChanges;
+        var iconSpan = settings_btn.find('span');
+        if(hasSettings){
+            iconSpan.removeClass('glyphicon-cog').addClass('glyphicon-exclamation-sign');
+        }else{
+            iconSpan.removeClass('glyphicon-exclamation-sign').addClass('glyphicon-cog');
+        }
+    }
+    updateSettingsIcon();
+
     diff_btns.append(top_btn);
     diff_btns.append(pre_btn);
     diff_btns.append(next_btn);
     diff_btns.append(pre_copy_btn);
-    diff_btns.append(settings_btn);
+    // 只对行模式显示settings按钮
+    if(diff_mode === 'line'){
+        diff_btns.append(settings_btn);
+    }
 
     pre_btn.click(()=>{
         var cur_span_parent = $("#diff-info");
@@ -228,27 +292,39 @@ function ShowDiff(pre_content, cur_content, diff_mode='line'){
         var saved = _diff_saved_settings || {};
         var savedRegex = saved.regex || '';
         var savedOnly = saved.onlyChanges ? 'checked' : '';
+        var savedExclude = saved.excludeRegex || '';
         var html = `
         <div class='form-group'>
             <label>行文本过滤正则（空为不使用）</label>
             <input type='text' id='diff-settings-regex' class='form-control' placeholder='例如: ^ERROR' value="${savedRegex}">
         </div>
         <div class='form-group'>
+            <label>排除正则（满足此正则的行不显示）</label>
+            <input type='text' id='diff-settings-exclude-regex' class='form-control' placeholder='例如: ^DEBUG' value="${savedExclude}">
+        </div>
+        <div class='form-group'>
             <label><input type='checkbox' id='diff-settings-only-changes' ${savedOnly}> 只显示变更行</label>
         </div>`;
         MyModal.Alert(html, function(){
             var regexStr = $('#diff-settings-regex').val() || '';
+            var excludeRegexStr = $('#diff-settings-exclude-regex').val() || '';
             var onlyChanges = $('#diff-settings-only-changes').is(':checked');
             // 验证正则
             if(regexStr){
                 try{ new RegExp(regexStr); }catch(e){ MyModal.Alert('正则表达式无效: ' + e); return; }
             }
+            if(excludeRegexStr){
+                try{ new RegExp(excludeRegexStr); }catch(e){ MyModal.Alert('排除正则表达式无效: ' + e); return; }
+            }
             // 保存设置到会话内存（不写入磁盘）
             _diff_saved_settings.regex = regexStr;
+            _diff_saved_settings.excludeRegex = excludeRegexStr;
             _diff_saved_settings.onlyChanges = onlyChanges;
+            // 更新设置图标
+            updateSettingsIcon();
             // 重新渲染 diff（行号仍使用未过滤的计数）
-            render(regexStr, onlyChanges);
-        }, 600, 180, 'Diff Settings');
+            render(regexStr, onlyChanges, excludeRegexStr);
+        }, 600, 240, 'Diff Settings');
     });
 
     display.append(diff_btns);
@@ -277,7 +353,7 @@ function ShowDiffToolPanel(){
             pre_content = content_lines.slice(0, pre_content_lines).join('\n');
             cur_content = content_lines.slice(pre_content_lines).join('\n');
         }
-        ShowDiff(pre_content, cur_content, diff_mode);
+        ShowDiff(pre_content, cur_content, 'note diff', diff_mode);
         // 不知为何调用ShowDiff后本模态框被关闭
         $("#my-confirm").modal('show');
     }

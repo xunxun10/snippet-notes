@@ -145,6 +145,7 @@ body {
 }
 
 
+/* diff信息区域 */
 #diff-info{
     overflow-x: auto;
     overflow-y: auto;
@@ -170,17 +171,6 @@ body {
     /*中划线 text-decoration: line-through; */
 }
 
-/* 行号样式（仅显示在最终版本的新增/修改行前） */
-.diff-line-no{
-    display: inline-block;
-    width: 40px;
-    text-align: right;
-    color: #666;
-    font-size: 12px;
-    margin-right: 8px;
-    user-select: none;
-}
-
 /* 两列 diff 视图：左侧为行号，右侧为内容 */
 .diff-view{
     display: flex;
@@ -189,29 +179,47 @@ body {
     overflow: auto;
 }
 .diff-gutter{
-    min-width: 20px;
-    padding: 6px 8px 6px 6px;
+    padding: 6px 5px 6px 2px;
     background: #f5f5f5;
     border-right: 1px solid #e6e6e6;
     text-align: right;
     font-size: 12px;
     color: #666;
     user-select: none; /* 避免复制时带上行号 */
+    flex-shrink: 0; /* 防止flex压缩 */
 }
 .diff-gutter-line{
-    line-height: 18px;
-    height: 18px;
+    line-height: 20px;
+    height: 20px;
     overflow: hidden;
 }
 .diff-content{
     flex: 1;
     padding: 6px 10px;
-    white-space: pre-wrap;
+    white-space: pre;
+    line-height: 20px;
+    font-size: 14px;
 }
-.diff-content-line{
-    line-height: 18px;
-    height: 18px;
+.diff-btns{
+    /* 固定显示在右侧中间位置 */
+    position: fixed;
+    top: 50%;
+    transform: translateY(-50%);
+    right: 40px;
+    width: 45px;
+    z-index: 1000;
+    /* 透明度 */
+    opacity: 0.5;
+    filter:alpha(opacity=50);
+    /* 鼠标悬停时透明度 */
+    -moz-transition: all 0.3s ease-in-out;
+    -webkit-transition: all 0.3s ease-in-out;
+    transition: all 0.3s ease-in-out;
 }
+.diff-btns button{
+    margin-bottom: 10px;
+}
+
 
 #search-res-board{
     background-color:#f8f8f9;
@@ -326,7 +334,7 @@ legend {
    - 行号高度与 textarea 行高保持一致 */
 #last-note-board .last-note-gutter{
     min-width: 20px;
-    padding: 7px 5px;
+    padding: 6px 5px;
     background: transparent;
     /* 右边框稍淡一点，作为分隔 */
     border-right: 1px solid rgba(0,0,0,0.06);
@@ -345,31 +353,13 @@ legend {
     flex: 1;
     resize: none;
     box-sizing: border-box;
-    height: calc(100% - 12px);
+    height: 100%;
     overflow: auto;
     border: none; /* 取消边框 */
     padding: 6px 10px;
     line-height: 22px; /* 与 gutter 行高一致 */
 }
 
-.diff-btns{
-    /* 固定显示在右侧中间位置 */
-    position: fixed;
-    top: calc(50% - 65px);
-    right: 40px;
-    width: 45px;
-    z-index: 1000;
-    /* 透明度 */
-    opacity: 0.5;
-    filter:alpha(opacity=50);
-    /* 鼠标悬停时透明度 */
-    -moz-transition: all 0.3s ease-in-out;
-    -webkit-transition: all 0.3s ease-in-out;
-    transition: all 0.3s ease-in-out;
-}
-.diff-btns button{
-    margin-bottom: 10px;
-}
 #note-history-desc{
     margin-bottom: 15px;
     font-size: 12px;
@@ -379,6 +369,7 @@ legend {
     min-width: 300px;
 }
 
+/* diff 面板工具区域 */
 #diff-tool-left, #diff-tool-right{
     width: calc(50% - 5px);
     padding: 5px;
@@ -388,6 +379,53 @@ legend {
 }
 #diff-tool-left{
     margin-right: 8px;
+}
+/* diff工具面板选项样式 */
+#diff-panel-options{
+    width: 100%;
+    float: left;
+    margin-top: 5px;
+    padding: 2px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: #f9f9f9;
+}
+.diff-panel-options-group{
+    display: inline-block;
+    height: 36px;
+    vertical-align: middle;
+}
+
+#diff-mode-group{
+    float: right;
+    padding-top: 2px;
+}
+
+/* diff 工具面板按钮高度及对齐调整 */
+#diff-panel-options .diff-mode-btn{
+    line-height: 30px;
+    padding: 0 8px;
+    font-size: 12px;
+    vertical-align: middle;
+}
+
+/* 使 checkbox-group 内元素与按钮高度一致并垂直居中 */
+#diff-panel-options .checkbox-group{
+    display: inline-flex;
+    align-items: center;
+}
+#diff-panel-options .checkbox-group label{
+    display: inline-flex;
+    align-items: center;
+    margin: 0 8px 0 0;
+}
+#diff-panel-options input{
+    margin-top: 0px;
+}
+#diff-panel-options .checkbox-group input[type="checkbox"]{
+    width: 14px;
+    height: 14px;
+    margin-right: 6px;
 }
 
 /*帮助部分样式*/
@@ -437,50 +475,3 @@ legend {
     color: white;
 }
 
-/* diff工具面板选项样式 */
-#diff-panel-options{
-    width: 100%;
-    float: left;
-    margin-top: 5px;
-    padding: 2px 10px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    background-color: #f9f9f9;
-}
-.diff-panel-options-group{
-    display: inline-block;
-    height: 36px;
-    vertical-align: middle;
-}
-
-#diff-mode-group{
-    float: right;
-    padding-top: 2px;
-}
-
-/* diff 工具面板按钮高度及对齐调整 */
-#diff-panel-options .diff-mode-btn{
-    line-height: 30px;
-    padding: 0 8px;
-    font-size: 12px;
-    vertical-align: middle;
-}
-
-/* 使 checkbox-group 内元素与按钮高度一致并垂直居中 */
-#diff-panel-options .checkbox-group{
-    display: inline-flex;
-    align-items: center;
-}
-#diff-panel-options .checkbox-group label{
-    display: inline-flex;
-    align-items: center;
-    margin: 0 8px 0 0;
-}
-#diff-panel-options input{
-    margin-top: 0px;
-}
-#diff-panel-options .checkbox-group input[type="checkbox"]{
-    width: 14px;
-    height: 14px;
-    margin-right: 6px;
-}

@@ -4,7 +4,8 @@
 
 let note_data = { last_note_range:null, last_note:{}, first_open:true };
 // 缓存上一次 gutter 的行文本，用于增量更新
-let _lastNoteGutterPrevLines = [];
+// 缓存上一次 gutter 的内容（用于快速跳过无变更情况）
+// (moved into function-private closure below)
 
 // 监听后台发来的事件
 if(typeof window.electronAPI != 'undefined'){
@@ -98,12 +99,14 @@ function SaveAndUpdateNote(new_id = null){
         return content.substr(0, pos == -1 ? content.length : pos)
     }
     if(new_id != null){
+        // 修改当前并跳转到新笔记
         CallSys("save_and_up_note", {note:{
             id:note_data.last_note.id,
             name:GetTitle(content),
             content:content,
         }, new_note_id:new_id});
     }else{
+        // 修改当前笔记
         CallSys("save_note", {
             id:note_data.last_note.id,
             name:GetTitle(content),
@@ -188,6 +191,8 @@ function UpdateLastNote(v){
 
     // 同步左侧行号列
     UpdateLastNoteGutter(v.content);
+    // 触发滚动同步
+    $("#last-note").trigger('scroll');
 
     // 根据文件标题自动确定编辑器类型
     if(note_data.first_open){
@@ -242,60 +247,146 @@ function UpdateLastNote(v){
     Info("已重新加载《" + v.name + "》");
 }
 
+
+// 初始化上一次测量相关数据 (moved into function-private closure below)
 // 更新左侧行号列（从0开始计数），保持与文本内容行数同步
-function UpdateLastNoteGutter(content){
-    var gutter = document.getElementById('last-note-gutter');
-    if(!gutter) return;
-    // 按换行符分割，保留末尾空行
-    var lines = content === undefined || content === null ? [''] : content.split('\n');
+const UpdateLastNoteGutter = (function(){
+    var _lastNoteGutterPrevContent = null;
+    var _gutterMeasureDiv = null;
+    var _lastClientWidth = null;
+    var _lastLogicalLines = [];
+    var _lastVisualCounts = [];
+    return function(content){
+        var gutter = document.getElementById('last-note-gutter');
+        var ta = document.getElementById('last-note');
+        if(!gutter || !ta) return;
 
-    // 增量更新策略：找到前缀相同的行索引，只对从 firstDiff 开始的行进行添加/更新/删除
-    var prev = _lastNoteGutterPrevLines || [];
-    var prevLen = prev.length;
-    var newLen = lines.length;
-    var minLen = Math.min(prevLen, newLen);
-    var firstDiff = 0;
-    while(firstDiff < minLen && prev[firstDiff] === lines[firstDiff]){
-        firstDiff++;
-    }
+        // 如果内容未变化则无需更新
+        if(_lastClientWidth == contentWidth && content === _lastNoteGutterPrevContent) return;
 
-    // 如果 gutter 为空或首次渲染，直接生成剩余节点
-    // 保证 gutter.childNodes 的数量至少为 firstDiff
-    // 更新或创建从 firstDiff 到 newLen-1 的行号节点
-    for(var i = firstDiff; i < newLen; i++){
-        if(i < gutter.childNodes.length){
-            // 更新已有节点文本（行号即索引）
-            gutter.childNodes[i].textContent = String(i);
+        var style = window.getComputedStyle(ta);
+
+        // 准备用于测量的隐藏div（复用）
+        if(!_gutterMeasureDiv){
+            _gutterMeasureDiv = document.createElement('div');
+            _gutterMeasureDiv.style.position = 'absolute';
+            _gutterMeasureDiv.style.visibility = 'hidden';
+            _gutterMeasureDiv.style.top = '-9999px';
+            _gutterMeasureDiv.style.left = '-9999px';
+            _gutterMeasureDiv.style.whiteSpace = 'pre-wrap';
+            _gutterMeasureDiv.style.wordBreak = 'break-word';
+            // 使用 content-box 避免 padding 被计入内容高度
+            _gutterMeasureDiv.style.boxSizing = 'content-box';
+            _gutterMeasureDiv.style.padding = '0px';
+            _gutterMeasureDiv.style.border = '0';
+            _gutterMeasureDiv.style.margin = '0';
+            document.body.appendChild(_gutterMeasureDiv);
+
+            // 复制影响换行的样式到测量div
+            _gutterMeasureDiv.style.font = style.font;
+            _gutterMeasureDiv.style.fontSize = style.fontSize;
+            _gutterMeasureDiv.style.fontFamily = style.fontFamily;
+            _gutterMeasureDiv.style.lineHeight = style.lineHeight;
+        }
+        // 宽度可能会改变，因此每次设置下。为精确测量文本换行行为，使用 textarea 的可用文本宽度（clientWidth 减去左右 padding）
+        var paddingLeft = parseFloat(style.paddingLeft) || 0;
+        var paddingRight = parseFloat(style.paddingRight) || 0;
+        var contentWidth = Math.max(0, ta.clientWidth - paddingLeft - paddingRight);
+        _gutterMeasureDiv.style.width = contentWidth + 'px';
+
+        // 计算单行行高
+        var lineHeight = parseFloat(style.lineHeight);
+        if(isNaN(lineHeight)){
+            // fallback: use font-size * 1.2
+            var fs = parseFloat(style.fontSize) || 14;
+            lineHeight = fs * 1.2;
+        }
+
+        // 按逻辑行分割，并为每行计算被软换行后占据的可视行数
+        var logicalLines;
+        if(content === undefined || content === null){
+            logicalLines = [''];
         }else{
-            // 创建新节点并追加
-            var ln = document.createElement('div');
-            ln.className = 'gutter-line';
-            ln.appendChild(document.createTextNode(i));
-            gutter.appendChild(ln);
+            logicalLines = content.split('\n');
         }
-    }
 
-    // 如果新长度比之前短，移除多余的节点
-    if(newLen < gutter.childNodes.length){
-        for(var j = gutter.childNodes.length - 1; j >= newLen; j--){
-            gutter.removeChild(gutter.childNodes[j]);
+        // 如果宽度发生变化则清除缓存的逻辑行及可视行数，强制重新计算
+        if(_lastClientWidth !== contentWidth){
+            _lastLogicalLines = [];
+            _lastVisualCounts = [];
         }
-    }
+        // 增量计算可视行数,找出开始不一致的行序号
+        var startIndex = 0;
+        var minLen = Math.min(_lastLogicalLines.length, logicalLines.length);
+        for(; startIndex < minLen; startIndex++){
+            if(_lastLogicalLines[startIndex] !== logicalLines[startIndex]){
+                break;
+            }
+        }
+        // 拷贝未变化的visualCounts
+        var sameCount = 0;
+        var totalVisual = 0;
+        var visualCounts = [];
+        for(var i = 0; i < startIndex; i++){
+            visualCounts[i] = _lastVisualCounts[i];
+            totalVisual += visualCounts[i];
+            sameCount += visualCounts[i];
+        }
+        // 计算变化及新增的行
 
-    // 更新缓存的 lines（保留副本）
-    _lastNoteGutterPrevLines = lines.slice(0);
+        for(var i = startIndex; i < logicalLines.length; i++){
+            var ln = logicalLines[i];
+            // 空行也需要至少占据一行高度
+            _gutterMeasureDiv.textContent = ln.length ? ln : ' ';
+            var h = _gutterMeasureDiv.offsetHeight;
+            // 使用四舍五入但对测量误差更鲁棒：取 h/lineHeight 的近似整数
+            var ratio = h / lineHeight;
+            var cnt = Math.max(1, Math.round(ratio));
+            visualCounts[i] = cnt;
+            totalVisual += cnt;
+        }
 
-    // 自动计算并设置 gutter 宽度，依据最大行号位数
-    try{
-        var maxIndex = Math.max(0, newLen - 1);
-        var digits = String(maxIndex).length;
-        // 每位大约 8px，再加 padding；限制最小/最大宽度
-        var w = Math.min(140, Math.max(20, digits * 7 + 12));
-        gutter.style.width = w + 'px';
-    }catch(e){
-        // ignore
-    }
-}
+        // 生成/更新 gutter 中的行号节点，清除不一致的节点后续的所有节点, 删除从 sameCount 到末尾的所有子节点（一次性批量删除）
+        if (sameCount < gutter.childNodes.length) {
+            const range = document.createRange();
+            range.setStart(gutter, sameCount);
+            range.setEnd(gutter, gutter.childNodes.length);
+            range.deleteContents();
+        }
+
+        // 通过 CSS 变量一次性设置行高，避免为每个节点写入内联样式
+        gutter.style.setProperty('--gutter-line-height', lineHeight + 'px');
+        // 使用 DocumentFragment 批量创建节点以减少重排
+        var frag = document.createDocumentFragment();
+        for(var i = startIndex; i < logicalLines.length; i++){
+            var cnt = visualCounts[i];
+            for(var k = 0; k < cnt; k++){
+                var text = (k === 0) ? String(i) : '';
+                var lnDiv = document.createElement('div');
+                lnDiv.className = 'gutter-line';
+                lnDiv.appendChild(document.createTextNode(text));
+                frag.appendChild(lnDiv);
+            }
+        }
+        gutter.appendChild(frag);
+
+        // 缓存最新内容
+        _lastNoteGutterPrevContent = content;
+        _lastClientWidth = contentWidth;
+        _lastLogicalLines = logicalLines;
+        _lastVisualCounts = visualCounts;
+
+        // 自动计算并设置 gutter 宽度，依据最大行号位数
+        try{
+            var maxIndex = Math.max(0, totalVisual - 1);
+            var digits = String(maxIndex).length;
+            var w = Math.min(140, Math.max(20, digits * 8 + 8));
+            gutter.style.width = w + 'px';
+        }catch(e){
+            // ignore
+        }
+    };
+})();
 
 var detail_data = {};
 async function ShowDetail(note_id, key, range){
@@ -610,8 +701,6 @@ $(function(){
 
     $("#last-note").on('input', MyTimer.Debounce(()=>{
         var cur = $("#last-note").val();
-        // 更新行号
-        UpdateLastNoteGutter(cur);
         if(IsLastModify()){
             $("#edit-flag").show();
             $("#diff-note-btn").removeClass('disabled');
@@ -731,6 +820,8 @@ $(function(){
     
 });
 
+ // 当窗口大小变化时的操作
 $(window).resize(function(){
     InitSize();
+    UpdateLastNoteGutter($("#last-note").val());
 });

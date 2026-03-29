@@ -67,6 +67,11 @@ for file in $diff_files; do
 done
 
 Info "压缩增加文件到 $dist_dir.tar.gz"
-tar -zcvf  $dist_dir.snippet-notes.$version.incr.tar.gz.zip  $incr_dir/*;
-CheckOption "压缩$dist_dir.tar.gz"
+# 名字类似 snippet-notes.$version.linux-arm64.incr.tar.gz.zip
+arch_str=$(basename "$dist_dir" | sed 's/-unpacked$//')
+incr_tar_name="snippet-notes.$version.${arch_str}.incr.tar.gz.zip"
+( cd $incr_dir && tar -zcvf  "../$incr_tar_name"  * );
+CheckOption "压缩$incr_tar_name失败"
 
+# md5信息暂存在dist目录下，如果需要使用此版本为基准，则需要将此文件拷贝回项目根目录
+echo "$new_md5" > "dist/$label_file"
