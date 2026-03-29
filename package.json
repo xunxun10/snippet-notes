@@ -32,6 +32,9 @@
       "output": "dist"
     },
     "asar": true,
+    "buildDependenciesFromSource": false,
+    "nodeGypRebuild": false,
+    "npmRebuild": false,
     "nsis": {
       "shortcutName": "snipnote",
       "oneClick": false,
