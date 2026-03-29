@@ -1,3 +1,6 @@
+# Node modules snapshots and platform tracking (auto-generated per environment)
+.node_modules_snapshots/
+
 .svn/
 
 # Logs
