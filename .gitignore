@@ -2,6 +2,9 @@
 .node_modules_snapshots/
 
 .svn/
+dist.files.md5*.txt
+.trae
+AGENTS.md
 
 # Logs
 logs

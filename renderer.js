@@ -238,7 +238,10 @@ function UpdateLastNote(v){
     }else{
         // 默认滚动到文件末尾
         if(note_data.first_open){
-            last_note_ele.animate({scrollTop: last_note_ele.prop("scrollHeight") + 'px'}, 200);
+            last_note_ele.animate({scrollTop: last_note_ele.prop("scrollHeight") + 'px'}, 200, function(){
+                // 动画完成后重新同步行号滚动（animate 不触发 scroll 事件）
+                $("#last-note").trigger('scroll');
+            });
             note_data.first_open = false;
         }
     }
@@ -250,141 +253,209 @@ function UpdateLastNote(v){
 
 // 初始化上一次测量相关数据 (moved into function-private closure below)
 // 更新左侧行号列（从0开始计数），保持与文本内容行数同步
+/**
+ * 更新编辑器左侧行号列
+ * 
+ * 标准做法（CodeMirror/Ace/Monaco 均采用此策略）：
+ *   - 测量阶段：用隐藏 div 模拟 textarea 换行，计算每逻辑行的可视行数
+ *   - 渲染阶段：从首个变更行开始全量重建 DOM（DOM 创建开销远小于测量开销）
+ *   - 缓存：上次每行的可视行数 + 内容 + 宽度，用于增量跳过
+ * 
+ * 性能关键：offsetHeight 触发强制重排，只有内容/宽度变化时才需要重新测量。
+ * 优化手段：通过正反向比较找到最小变更区间，只测变更行。
+ */
 const UpdateLastNoteGutter = (function(){
-    var _lastNoteGutterPrevContent = null;
-    var _gutterMeasureDiv = null;
-    var _lastClientWidth = null;
-    var _lastLogicalLines = [];
-    var _lastVisualCounts = [];
+    var _prevContent = null;        // 上次完整内容
+    var _prevWidth = null;           // 上次 textarea 可用宽度（px）
+    var _prevVisualCounts = [];      // 上次每逻辑行的可视行数
+    var _measureDiv = null;          // 复用的测量用隐藏 div
+
     return function(content){
         var gutter = document.getElementById('last-note-gutter');
         var ta = document.getElementById('last-note');
-        if(!gutter || !ta) return;
+        if (!gutter || !ta) return;
 
-        // 如果内容未变化则无需更新
-        if(_lastClientWidth == contentWidth && content === _lastNoteGutterPrevContent) return;
+        // 0. 分割逻辑行（提前，用于估算 gutter 宽度）
+        var lines = (content == null) ? [''] : content.split('\n');
+
+        // 0a. 预先估算 gutter 宽度并设置，稳定 flex 布局后再测量 clientWidth
+        //     估算值偏保守（按逻辑行数算位数），精确值在步骤 9 修正
+        var estDigits = String(Math.max(0, lines.length - 1)).length;
+        var gutterW = Math.min(140, Math.max(20, estDigits * 8 + 8)) + 'px';
+        gutter.style.width = gutterW;
+        var defaultTabA = document.querySelector('#default-note-title-btn > .top-nav');
+        if (defaultTabA) defaultTabA.style.minWidth = defaultTabA.style.maxWidth = defaultTabA.style.width = gutterW;
 
         var style = window.getComputedStyle(ta);
 
-        // 准备用于测量的隐藏div（复用）
-        if(!_gutterMeasureDiv){
-            _gutterMeasureDiv = document.createElement('div');
-            _gutterMeasureDiv.style.position = 'absolute';
-            _gutterMeasureDiv.style.visibility = 'hidden';
-            _gutterMeasureDiv.style.top = '-9999px';
-            _gutterMeasureDiv.style.left = '-9999px';
-            _gutterMeasureDiv.style.whiteSpace = 'pre-wrap';
-            _gutterMeasureDiv.style.wordBreak = 'break-word';
-            // 使用 content-box 避免 padding 被计入内容高度
-            _gutterMeasureDiv.style.boxSizing = 'content-box';
-            _gutterMeasureDiv.style.padding = '0px';
-            _gutterMeasureDiv.style.border = '0';
-            _gutterMeasureDiv.style.margin = '0';
-            document.body.appendChild(_gutterMeasureDiv);
-
-            // 复制影响换行的样式到测量div
-            _gutterMeasureDiv.style.font = style.font;
-            _gutterMeasureDiv.style.fontSize = style.fontSize;
-            _gutterMeasureDiv.style.fontFamily = style.fontFamily;
-            _gutterMeasureDiv.style.lineHeight = style.lineHeight;
-        }
-        // 宽度可能会改变，因此每次设置下。为精确测量文本换行行为，使用 textarea 的可用文本宽度（clientWidth 减去左右 padding）
+        // 1. 计算当前可用宽度（textarea 内容区宽度）
         var paddingLeft = parseFloat(style.paddingLeft) || 0;
         var paddingRight = parseFloat(style.paddingRight) || 0;
         var contentWidth = Math.max(0, ta.clientWidth - paddingLeft - paddingRight);
-        _gutterMeasureDiv.style.width = contentWidth + 'px';
 
-        // 计算单行行高
-        var lineHeight = parseFloat(style.lineHeight);
-        if(isNaN(lineHeight)){
-            // fallback: use font-size * 1.2
-            var fs = parseFloat(style.fontSize) || 14;
-            lineHeight = fs * 1.2;
-        }
+        // 2. 内容和宽度都没变 → 无需任何操作
+        if (_prevWidth === contentWidth && content === _prevContent) return;
 
-        // 按逻辑行分割，并为每行计算被软换行后占据的可视行数
-        var logicalLines;
-        if(content === undefined || content === null){
-            logicalLines = [''];
-        }else{
-            logicalLines = content.split('\n');
+        // 5. 初始化/更新测量用隐藏 div
+        if (!_measureDiv) {
+            _measureDiv = document.createElement('div');
+            _measureDiv.style.position = 'absolute';
+            _measureDiv.style.visibility = 'hidden';
+            _measureDiv.style.top = '-9999px';
+            _measureDiv.style.left = '-9999px';
+            _measureDiv.style.whiteSpace = 'pre-wrap';
+            // 与 textarea 折行行为完全一致（textarea 无 word-break/overflow-wrap 设置）
+            _measureDiv.style.wordBreak = 'normal';
+            _measureDiv.style.overflowWrap = 'normal';
+            _measureDiv.style.boxSizing = 'content-box';
+            _measureDiv.style.padding = '0px';
+            _measureDiv.style.border = '0';
+            _measureDiv.style.margin = '0';
+            _measureDiv.style.font = style.font;
+            _measureDiv.style.fontSize = style.fontSize;
+            _measureDiv.style.fontFamily = style.fontFamily;
+            _measureDiv.style.lineHeight = style.lineHeight;
+            document.body.appendChild(_measureDiv);
         }
+        _measureDiv.style.width = contentWidth + 'px';
 
-        // 如果宽度发生变化则清除缓存的逻辑行及可视行数，强制重新计算
-        if(_lastClientWidth !== contentWidth){
-            _lastLogicalLines = [];
-            _lastVisualCounts = [];
-        }
-        // 增量计算可视行数,找出开始不一致的行序号
-        var startIndex = 0;
-        var minLen = Math.min(_lastLogicalLines.length, logicalLines.length);
-        for(; startIndex < minLen; startIndex++){
-            if(_lastLogicalLines[startIndex] !== logicalLines[startIndex]){
-                break;
+        // 3.5 从测量 div 实测单行实际高度（比解析 style.lineHeight 精确）
+        _measureDiv.textContent = 'x';
+        var actualLineHeight = _measureDiv.offsetHeight;
+
+        // 4. 计算每逻辑行的可视行数
+        var cacheValid = (_prevWidth === contentWidth && _prevVisualCounts.length > 0);
+        var visualCounts = new Array(lines.length);
+        var totalVisual = 0;      // 总可视行数
+        var startIdx = 0;         // 第一个需要重建 DOM 的逻辑行索引
+        var suffixStart, oldSuffixStart; // 变更区间结束位置（增量渲染用）
+
+        if (cacheValid) {
+            // ----- 6a. 缓存有效：增量计算，只测变更行 -----
+            var prevLines = _prevContent.split('\n');
+
+            // 正向查找第一个变更行
+            startIdx = 0;
+            var minLen = Math.min(prevLines.length, lines.length);
+            while (startIdx < minLen && prevLines[startIdx] === lines[startIdx]) startIdx++;
+
+            if (startIdx < lines.length || lines.length !== prevLines.length) {
+                // 反向查找最后一个变更行（从末尾向 startIdx 比较）
+                suffixStart = lines.length;
+                oldSuffixStart = prevLines.length;
+                var li = prevLines.length - 1;
+                var ci = lines.length - 1;
+                while (li >= startIdx && ci >= startIdx && prevLines[li] === lines[ci]) {
+                    li--;
+                    ci--;
+                }
+                suffixStart = ci + 1;
+                oldSuffixStart = li + 1;
+
+                // 复制未变化的前缀
+                for (var i = 0; i < startIdx; i++) {
+                    visualCounts[i] = _prevVisualCounts[i];
+                    totalVisual += visualCounts[i];
+                }
+
+                // 测量变更区间 [startIdx, suffixStart)
+                for (var i = startIdx; i < suffixStart; i++) {
+                    _measureDiv.textContent = lines[i] || ' ';
+                    var ratio = _measureDiv.offsetHeight / actualLineHeight;
+                    // 用 ceil 替代 round：如果文本占用了超过 N 行空间，就需要 N+1 个可视行
+                    // 减 0.001 epsilon 避免浮点误差（如 2.000001 → ceil(1.999001) = 2）
+                    var cnt = Math.max(1, Math.ceil(ratio - 0.001));
+                    visualCounts[i] = cnt;
+                    totalVisual += cnt;
+                }
+
+                // 复制未变化的后缀
+                var offset = oldSuffixStart - suffixStart;
+                for (var i = suffixStart; i < lines.length; i++) {
+                    visualCounts[i] = _prevVisualCounts[i + offset];
+                    totalVisual += visualCounts[i];
+                }
+            } else {
+                // 完全没变化（极罕见，前面的 early-exit 应已拦截）
+                return;
+            }
+        } else {
+            // ----- 6b. 缓存无效：全量测量所有行 -----
+            for (var i = 0; i < lines.length; i++) {
+                _measureDiv.textContent = lines[i] || ' ';
+                var ratio = _measureDiv.offsetHeight / actualLineHeight;
+                // 用 ceil 替代 round：如果文本占用了超过 N 行空间，就需要 N+1 个可视行
+                var cnt = Math.max(1, Math.ceil(ratio - 0.001));
+                visualCounts[i] = cnt;
+                totalVisual += cnt;
             }
         }
-        // 拷贝未变化的visualCounts
-        var sameCount = 0;
-        var totalVisual = 0;
-        var visualCounts = [];
-        for(var i = 0; i < startIndex; i++){
-            visualCounts[i] = _lastVisualCounts[i];
-            totalVisual += visualCounts[i];
-            sameCount += visualCounts[i];
-        }
-        // 计算变化及新增的行
 
-        for(var i = startIndex; i < logicalLines.length; i++){
-            var ln = logicalLines[i];
-            // 空行也需要至少占据一行高度
-            _gutterMeasureDiv.textContent = ln.length ? ln : ' ';
-            var h = _gutterMeasureDiv.offsetHeight;
-            // 使用四舍五入但对测量误差更鲁棒：取 h/lineHeight 的近似整数
-            var ratio = h / lineHeight;
-            var cnt = Math.max(1, Math.round(ratio));
-            visualCounts[i] = cnt;
-            totalVisual += cnt;
-        }
-
-        // 生成/更新 gutter 中的行号节点，清除不一致的节点后续的所有节点, 删除从 sameCount 到末尾的所有子节点（一次性批量删除）
-        if (sameCount < gutter.childNodes.length) {
-            const range = document.createRange();
-            range.setStart(gutter, sameCount);
-            range.setEnd(gutter, gutter.childNodes.length);
-            range.deleteContents();
-        }
-
-        // 通过 CSS 变量一次性设置行高，避免为每个节点写入内联样式
-        gutter.style.setProperty('--gutter-line-height', lineHeight + 'px');
-        // 使用 DocumentFragment 批量创建节点以减少重排
-        var frag = document.createDocumentFragment();
-        for(var i = startIndex; i < logicalLines.length; i++){
-            var cnt = visualCounts[i];
-            for(var k = 0; k < cnt; k++){
-                var text = (k === 0) ? String(i) : '';
+        // 7. 渲染 gutter 行号 DOM
+        if (cacheValid) {
+            // ----- 7a. 增量更新：只重建变更区间 [startIdx, suffixStart)，保留未变化后缀节点 -----
+            // 删除旧变更区间节点 [startIdx, oldSuffixStart)
+            var delEnd = Math.min(oldSuffixStart, gutter.childNodes.length);
+            if (startIdx < delEnd) {
+                var range = document.createRange();
+                range.setStart(gutter, startIdx);
+                range.setEnd(gutter, delEnd);
+                range.deleteContents();
+            }
+            // 创建新变更区间节点 [startIdx, suffixStart)（空区间则不创建）
+            var frag = document.createDocumentFragment();
+            for (var i = startIdx; i < suffixStart; i++) {
+                var cnt = visualCounts[i];
                 var lnDiv = document.createElement('div');
                 lnDiv.className = 'gutter-line';
-                lnDiv.appendChild(document.createTextNode(text));
+                lnDiv.textContent = String(i);
+                lnDiv.style.height = (cnt * actualLineHeight) + 'px';
                 frag.appendChild(lnDiv);
             }
+            // 插入到 startIdx 位置（旧后缀节点之前）
+            if (startIdx < gutter.childNodes.length) {
+                gutter.insertBefore(frag, gutter.childNodes[startIdx]);
+            } else {
+                gutter.appendChild(frag);
+            }
+            // 若行数变化，更新后缀节点的行号和高度
+            if (lines.length !== _prevContent.split('\n').length) {
+                for (var i = suffixStart; i < lines.length; i++) {
+                    var node = gutter.childNodes[i];
+                    if (node) {
+                        node.textContent = String(i);
+                        node.style.height = (visualCounts[i] * actualLineHeight) + 'px';
+                    }
+                }
+            }
+        } else {
+            // ----- 7b. 全量重建：清除后一次性创建所有节点 -----
+            gutter.textContent = '';
+            var frag = document.createDocumentFragment();
+            for (var i = 0; i < lines.length; i++) {
+                var cnt = visualCounts[i];
+                var lnDiv = document.createElement('div');
+                lnDiv.className = 'gutter-line';
+                lnDiv.textContent = String(i);
+                lnDiv.style.height = (cnt * actualLineHeight) + 'px';
+                frag.appendChild(lnDiv);
+            }
+            gutter.appendChild(frag);
         }
-        gutter.appendChild(frag);
 
-        // 缓存最新内容
-        _lastNoteGutterPrevContent = content;
-        _lastClientWidth = contentWidth;
-        _lastLogicalLines = logicalLines;
-        _lastVisualCounts = visualCounts;
+        // 8. 缓存当前状态
+        _prevContent = content;
+        _prevWidth = contentWidth;
+        _prevVisualCounts = visualCounts;
 
-        // 自动计算并设置 gutter 宽度，依据最大行号位数
-        try{
-            var maxIndex = Math.max(0, totalVisual - 1);
-            var digits = String(maxIndex).length;
-            var w = Math.min(140, Math.max(20, digits * 8 + 8));
-            gutter.style.width = w + 'px';
-        }catch(e){
-            // ignore
-        }
+        // 9. 自动调整 gutter 宽度（依据最大行号位数）
+        try {
+            var digits = String(Math.max(0, totalVisual - 1)).length;
+            var gutterW = Math.min(140, Math.max(20, digits * 8 + 8)) + 'px';
+            gutter.style.width = gutterW;
+            var defaultTabA = document.querySelector('#default-note-title-btn > .top-nav');
+            if (defaultTabA) defaultTabA.style.minWidth = defaultTabA.style.maxWidth = defaultTabA.style.width = gutterW;
+        } catch(e) { /* ignore */ }
     };
 })();
 
@@ -485,19 +556,23 @@ function TriggerNoteInput(){
 }
 
 let vditor = { shown: false, obj: null};
+// 计算 md 编辑器高度：board 可用空间 = board高度 - nav-tabs高度
+function GetEditorHeight(){
+    return $("#last-note-board").height() - $(".nav-tabs", "#last-note-board").outerHeight();
+}
 function ShowMdEditor(){
     let md_editor = $("#md-editor");
     // 显示md编辑器，隐藏 last-note 包裹容器（含行号）
     $(".last-note-wrapper").hide();
     md_editor.show();
-    $("#md-mode-btn").css('background-color', '#eee');
+    $("#md-mode-btn").addClass('active');
 
     // 使用 vditor 进行 markdown 编辑，展示在 #md-editor 中 
     if (vditor.obj){
         vditor.obj.setValue($("#last-note").val());
     }else{
         vditor.obj = new Vditor('md-editor', {
-            "height": $("#last-note").height() - 60,
+            "height": GetEditorHeight(),
             "cache": {
                 "enable": false
             },
@@ -528,7 +603,7 @@ function HideMdEditor(update_last_note = true){
     $(".last-note-wrapper").show();
     md_editor.hide();
     vditor.shown = false;
-    $("#md-mode-btn").css('background-color', '');
+    $("#md-mode-btn").removeClass('active');
     // 更新last-note为md编辑器的内容
     if(update_last_note && vditor.obj){
         $("#last-note").val(vditor.obj.getValue());
@@ -821,7 +896,12 @@ $(function(){
 });
 
  // 当窗口大小变化时的操作
+var _resizeRafId = null;
 $(window).resize(function(){
     InitSize();
-    UpdateLastNoteGutter($("#last-note").val());
+    if(_resizeRafId) cancelAnimationFrame(_resizeRafId);
+    _resizeRafId = requestAnimationFrame(function(){
+        UpdateLastNoteGutter($("#last-note").val());
+        _resizeRafId = null;
+    });
 });
