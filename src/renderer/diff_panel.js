@@ -244,7 +244,7 @@ function ShowDiff(pre_content, cur_content, title='note diff', diff_mode='line')
         });
         if(!find_flag){
             // 提示已无数据
-            MyModal.Alert("已到顶");
+            MyModal.Toast("已到顶");
         }
     });
     next_btn.click(()=>{
@@ -268,7 +268,7 @@ function ShowDiff(pre_content, cur_content, title='note diff', diff_mode='line')
         });
         if(!find_flag){
             // 提示已无数据
-            MyModal.Alert("已到底");
+            MyModal.Toast("已到底");
         }
     });
     top_btn.click(()=>{

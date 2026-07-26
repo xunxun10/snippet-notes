@@ -1,6 +1,6 @@
 // 程序入口
 
-const { app, BrowserWindow, Menu, ipcMain, dialog } = require('electron')
+const { app, BrowserWindow, Menu, ipcMain, dialog, shell } = require('electron')
 const path = require('path')
 const Notes = require('./notes')
 const MyConf = require('./util/my_conf')
@@ -16,6 +16,8 @@ const is_windows = process.platform === 'win32';
 
 
 var G_CAN_APP_EXIST = false;    // 是否可以退出
+var G_INIT_DONE = false;        // 初始化是否完成
+var G_PENDING_MSGS = [];        // 初始化完成前暂存的消息
 
 var g_conf = null
 var g_sys_params = {
@@ -47,6 +49,10 @@ function CreateMenu(){
             {
                 label:'保存当前笔记',
                 click: () => { CallWeb('save-note') }
+            },
+            {
+                label: '打开配置目录',
+                click: () => { shell.openPath(g_sys_params.local_data_dir); },
             },
           ]
         },
@@ -94,6 +100,13 @@ async function Init(){
     let default_note_id = await Notes.GetDefaultNoteId();
     g_sys_params.default_note = default_note_id ? default_note_id : g_sys_params.default_note;
     console.log(MyDate.Now() + " found default note id: " + default_note_id);
+
+    // 标记初始化完成，处理暂存的消息
+    G_INIT_DONE = true;
+    for (let pending of G_PENDING_MSGS) {
+        HandleWebMsg(pending.event, pending.msg);
+    }
+    G_PENDING_MSGS = [];
 }
 
 // 修改笔记数据位置
@@ -149,32 +162,14 @@ const createWindow = async () => {
         }
     })
 
-    // 修复窗口在弹出alert等弹框后失去焦点的bug, 有bug，在缩小后放大时会丢失操作
-    /*G_MAIN_WINDOW.on('blur', (event) => {
-        if(!triggering_programmatic_blur) {
-            need_focus_fix = true;
-        }
-    })
-    G_MAIN_WINDOW.on('focus', (event) => {
-        if(is_windows && need_focus_fix) {
-            need_focus_fix = false;
-            triggering_programmatic_blur = true;
-            setTimeout(function () {
-                G_MAIN_WINDOW.blur();
-                G_MAIN_WINDOW.focus();
-                setTimeout(function () {
-                    triggering_programmatic_blur = false;
-                }, 100);
-            }, 100);
-        }
-    })*/
+    // 先加载页面，让窗口尽快显示
+    G_MAIN_WINDOW.loadFile('index.html')
 
+    // 并行初始化数据库和配置
     await Init()
 
     // 创建菜单
     Menu.setApplicationMenu(CreateMenu())
-
-    G_MAIN_WINDOW.loadFile('index.html')
 }
 
 // 窗口打开时
@@ -255,6 +250,11 @@ function CallWeb(type, data=null){
  * @param {*} msg 
  */
 function HandleWebMsg(event, msg){
+    // 初始化未完成时暂存消息
+    if (!G_INIT_DONE) {
+        G_PENDING_MSGS.push({event, msg});
+        return;
+    }
     let value = msg.data;
 
     console.debug(MyDate.Now() + " handle from web: " + msg.type)

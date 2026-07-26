@@ -13,6 +13,8 @@ body {
 
 .info-div, .btn-div{
   margin-top:5px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #ebeef5;
 }
 
 .btn-div button{
@@ -31,24 +33,47 @@ body {
   color: #555;
   background-color: #fff;
   background-image: none;
-  border: 1px solid #ccc;
+  border: 1px solid #c0c4cc;
   border-right: none;
-  border-radius: 4px;
-  -webkit-box-shadow: inset 0 1px 1px rgba(0,0,0,.075);
-  box-shadow: inset 0 1px 1px rgba(0,0,0,.075);
-  -webkit-transition: border-color ease-in-out .15s,-webkit-box-shadow ease-in-out .15s;
-  -o-transition: border-color ease-in-out .15s,box-shadow ease-in-out .15s;
-  transition: border-color ease-in-out .15s,box-shadow ease-in-out .15s;
+  border-radius: 6px 0 0 6px;
+  -webkit-box-shadow: inset 0 1px 2px rgba(0,0,0,.06), 0 1px 3px rgba(0,0,0,.04);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,.06), 0 1px 3px rgba(0,0,0,.04);
+  -webkit-transition: border-color .2s ease, box-shadow .2s ease;
+  transition: border-color .2s ease, box-shadow .2s ease;
+}
+.search-input:focus{
+    border-color: #80bdff;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,.06), 0 0 0 3px rgba(0,123,255,.1);
+    outline: none;
 }
 #search-btn{
     min-width: 60px;
 }
 .top-btn{
-    height: 33px;
-    margin-left: 5px;
+    height: 34px;
+    margin-left: -1px;
     vertical-align: top;
     min-width: 40px;
     top:0px;
+    padding: 6px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #555;
+    background: linear-gradient(to bottom, #fff, #f0f0f0);
+    border: 1px solid #c0c4cc;
+    border-radius: 0 6px 6px 0;
+    cursor: pointer;
+    box-shadow: 0 1px 2px rgba(0,0,0,.04);
+    transition: all .2s ease;
+}
+.top-btn:hover{
+    color: #333;
+    border-color: #a0a4ac;
+    box-shadow: 0 2px 4px rgba(0,0,0,.08);
+}
+.top-btn:active{
+    background: linear-gradient(to bottom, #e8e8e8, #ddd);
+    box-shadow: inset 0 1px 2px rgba(0,0,0,.1);
 }
 #search-param-toggle{
     vertical-align: top;
@@ -58,18 +83,24 @@ body {
 .down-sel-toggle{
     width: 34px;
     height: 34px;
-    border: 1px solid lightgray;
-    margin-left:-6px;
-    margin-top: -2px;
+    border: 1px solid #c0c4cc;
+    border-left: none;
+    margin-left: -4px;
+    margin-top: 0;
+    border-radius: 0;
+    box-shadow: 0 1px 2px rgba(0,0,0,.04);
+    transition: border-color .2s ease;
+}
+.down-sel-toggle:hover{
+    border-color: #a0a4ac;
 }
 .down-sel-content{
     overflow-y: auto;
     overflow-x: auto;
     background-color: white;
-    border: 1px solid lightgray;
+    border: 1px solid #dcdfe6;
     border-top: none;
-    border-bottom-left-radius: 4px;
-    border-bottom-right-radius: 4px;
+    border-radius: 0 0 6px 6px;
     position: absolute;
     top: 35px;
     right: 0px;
@@ -78,9 +109,10 @@ body {
     margin-left: -1px;
     display: none;
     text-align: left;
-    padding: 10px;
-    color: #8c8a8a;
+    padding: 12px;
+    color: #606266;
     font-size: 13px;
+    box-shadow: 0 4px 12px rgba(0,0,0,.08);
 }
 .down-sel-content{
     width: 200px;
@@ -122,85 +154,67 @@ body {
 /* nav-tabs 通用链接样式 */
 .top-nav{
     padding: 6px 14px !important;
-    border:1px solid #ddd !important;
-    border-radius: 5px 5px 0 0;
+    border:1px solid #dcdfe6 !important;
+    border-radius: 6px 6px 0 0;
     font-weight: 600;
     user-select: none;
-    color: #555;
-    background: #fafafa;
-    transition: background 0.15s, color 0.15s, border-color 0.15s;
-    margin-right: 2px;
+    color: #606266;
+    background: linear-gradient(to bottom, #fafafa, #f2f2f2);
+    transition: all 0.2s ease;
+    margin-right: 4px;
+    box-shadow: 0 -1px 2px rgba(0,0,0,.02);
 }
 .top-nav:hover{
-    background: #fff;
-    color: #333;
-    border-color: #bbb !important;
+    background: linear-gradient(to bottom, #fff, #f8f8f8);
+    color: #303133;
+    border-color: #c0c4cc !important;
+    box-shadow: 0 -1px 3px rgba(0,0,0,.04);
 }
-
-/* 文本标签（默认笔记、当前笔记）- 主 tab 样式（视觉上连成一组分段按钮） */
-#default-note-title-btn > .top-nav{
-    padding: 6px 8px !important;
-    font-size: 13px;
-    border-bottom-color: transparent !important;
-    border-right: none !important;
-    border-radius: 5px 0 0 5px;
-    background: #fff;
-    color: #333;
-    overflow: hidden;
-    white-space: nowrap;
-    display: block;
-    box-sizing: border-box;
-    margin-right: 0 !important;
-    text-align: center;
+#last-note-title-btn{
+    margin-right: 10px;
 }
 #last-note-title-btn > .top-nav{
-    padding: 6px 16px !important;
+    padding: 6px 11px 6px 16px !important;
     font-size: 13px;
-    border-bottom-color: transparent !important;
-    border-radius: 0 5px 5px 0;
+    border-bottom-color: #fff !important;
+    border-radius: 6px 6px 0 0;
     background: #fff;
-    color: #333;
+    color: #303133;
+    box-shadow: 0 -2px 4px rgba(0,0,0,.04);
 }
 
 /* 图标操作按钮 - 更轻量的风格 */
 .edit-panel-btn{
     padding: 6px 9px !important;
     margin-top: 0;
-    color: #777;
+    color: #909399;
     font-weight: normal;
     border-color: transparent !important;
     background: transparent;
-    border-radius: 4px !important;
+    border-radius: 5px !important;
     font-size: 13px;
+    transition: all .2s ease;
 }
 .edit-panel-btn:hover{
-    background: #e8e8e8;
-    color: #333;
-    border-color: #ccc !important;
+    background: rgba(0,0,0,.04);
+    color: #303133;
+    border-color: #dcdfe6 !important;
 }
 .edit-panel-btn.disabled{
-    color: #ccc;
+    color: #c0c4cc;
     pointer-events: none;
 }
 
-/* 图标按钮左侧加一点间距作为视觉分隔 */
-#diff-note-btn{
-    margin-left: 10px;
-}
 
-/* 为默认笔记标题中的家图标添加样式 */
-#default-note-title-btn .glyphicon-home {
-    margin-right: 5px;
-    font-size: 12px;
-}
-/* 默认笔记标题为空时隐藏，避免 ellipsis 产生多余的点 */
-#default-note-title:empty {
-    display: none;
-}
+
 #edit-flag{
     font-size: 14px;
-    display: none;
+    visibility: hidden;
     margin-left:3px;
+    display: inline-block;
+}
+#edit-flag.visible{
+    visibility: visible;
 }
 
 
@@ -239,11 +253,10 @@ body {
 }
 .diff-gutter{
     padding: 6px 5px 6px 2px;
-    background: #f5f5f5;
-    border-right: 1px solid #e6e6e6;
+    border-right: 1px solid #e4e7ed;
     text-align: right;
     font-size: 12px;
-    color: #666;
+    color: #909399;
     user-select: none; /* 避免复制时带上行号 */
     flex-shrink: 0; /* 防止flex压缩 */
 }
@@ -268,8 +281,8 @@ body {
     width: 45px;
     z-index: 1000;
     /* 透明度 */
-    opacity: 0.5;
-    filter:alpha(opacity=50);
+    opacity: 0.85;
+    filter:alpha(opacity=85);
     /* 鼠标悬停时透明度 */
     -moz-transition: all 0.3s ease-in-out;
     -webkit-transition: all 0.3s ease-in-out;
@@ -281,9 +294,11 @@ body {
 
 
 #search-res-board{
-    background-color:#f8f8f9;
     padding:10px 3px;
     overflow-y: auto;
+    border: 1px solid #ebeef5;
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.04);
 }
 .board-items{
     height:calc( 100% - 30px );
@@ -293,14 +308,31 @@ body {
 .left-top-title{
     vertical-align: top;
     display: inline-block;
-    padding-left: 5px;
+    padding-left: 8px;
     width:100px;
-    font-weight: 800;
+    font-weight: 700;
+    font-size: 13px;
+    color: #303133;
+    letter-spacing: .5px;
 }
 .top-right-btn{
     position:relative;
     top:0px;
     margin-right: 6px;
+    padding: 2px 8px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: #909399;
+    background: transparent;
+    cursor: pointer;
+    transition: all .2s ease;
+    font-size: 12px;
+    line-height: 1.5;
+}
+.top-right-btn:hover{
+    color: #303133;
+    border-color: #dcdfe6;
+    background: rgba(0,0,0,.03);
 }
 .top-right-btn-1{
     right:calc(135px - 100%);
@@ -320,15 +352,48 @@ body {
   max-height: 1000px;
   border:none;
   margin: 0px;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 
 #res-detail{
     margin-top: 5px;
-    background-color:#f5f5f5;
+    border: 1px solid #ebeef5;
+    border-radius: 6px;
 }
 .mark, mark{
     padding:2px;
+}
+
+
+/* 自定义滚动条 - 更精致的外观 */
+.board-items::-webkit-scrollbar,
+#last-note::-webkit-scrollbar,
+#res-detail::-webkit-scrollbar,
+#search-res-board::-webkit-scrollbar{
+    width: 6px;
+    height: 6px;
+}
+.board-items::-webkit-scrollbar-thumb,
+#last-note::-webkit-scrollbar-thumb,
+#res-detail::-webkit-scrollbar-thumb,
+#search-res-board::-webkit-scrollbar-thumb{
+    border-radius: 3px;
+    background: rgba(0,0,0,.12);
+}
+.board-items::-webkit-scrollbar-thumb:hover,
+#last-note::-webkit-scrollbar-thumb:hover,
+#res-detail::-webkit-scrollbar-thumb:hover,
+#search-res-board::-webkit-scrollbar-thumb:hover{
+    background: rgba(0,0,0,.2);
+}
+.board-items::-webkit-scrollbar-track,
+#last-note::-webkit-scrollbar-track,
+#res-detail::-webkit-scrollbar-track,
+#search-res-board::-webkit-scrollbar-track{
+    background: transparent;
 }
 
 
@@ -339,10 +404,11 @@ body {
     width: 100%;
     height: 25px;
     line-height: 15px;
-    background-color: #f8f8f9;
-    font-size: 10px;
+    font-size: 11px;
     margin: 0px;
-    padding:5px 5px;
+    padding:5px 10px;
+    color: #909399;
+    border-top: 1px solid #ebeef5;
 }
 
 
@@ -350,7 +416,9 @@ body {
 fieldset {
     padding: .35em .625em .75em;
     margin: 0 0px;
-    border: 1px solid silver;
+    border: 1px solid #e4e7ed;
+    border-radius: 6px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.03);
 }
 legend {
     padding: .5em;
@@ -358,7 +426,8 @@ legend {
     width: auto;
     margin-bottom: 0px;
     font-size: 12px;
-    font-weight:800; 
+    font-weight: 700;
+    color: #606266;
 }
 
 .dir-to-note-btn, .show-note-his-btn{
@@ -382,18 +451,19 @@ legend {
     width: 100%;
     height: calc(100% - 34px);
     align-items: stretch;
-    border: 1px solid #ddd;
-    border-radius: 0 0 4px 4px;
+    border: 1px solid #dcdfe6;
+    border-radius: 0 0 6px 6px;
     margin-top: -1px;
     line-height: 22px; /* 与 gutter 行高一致 */
     background: #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,.04);
 }
 
 /* md 编辑器激活状态 */
 #md-mode-btn.active{
-    background: #e0e0e0;
-    color: #333;
-    border-color: #ccc !important;
+    background: rgba(0,0,0,.06);
+    color: #303133;
+    border-color: #c0c4cc !important;
 }
 
 /* gutter 与 textarea 边框整合：
@@ -408,7 +478,7 @@ legend {
     border-right: 1px solid rgba(0,0,0,0.06);
     text-align: right;
     font-size: 12px;
-    color: rgba(0,0,0,0.55);
+    color: rgba(0,0,0,0.4);
     overflow: hidden;
     user-select: none;
     line-height: 22px; /* 与 gutter 行高一致 */
@@ -454,9 +524,8 @@ legend {
     float: left;
     margin-top: 5px;
     padding: 2px 10px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    background-color: #f9f9f9;
+    border: 1px solid #e4e7ed;
+    border-radius: 6px;
 }
 .diff-panel-options-group{
     display: inline-block;
@@ -541,5 +610,26 @@ legend {
 .context-menu li:hover {
     background-color: #007bff;
     color: white;
+}
+
+/* ===== 渐隐提示 Toast ===== */
+.toast-notification {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 99999;
+    background: rgba(0,0,0,.75);
+    color: #fff;
+    padding: 10px 24px;
+    border-radius: 6px;
+    font-size: 14px;
+    pointer-events: none;
+    user-select: none;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+.toast-notification.show {
+    opacity: 1;
 }
 

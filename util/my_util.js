@@ -349,29 +349,40 @@ var MyModal = class {
      * @returns {jQuery} - 模态框的jQuery对象
      */
     static Info(content, title='SnippetNotes Info', width=1000, height=600, id_str="") {
-        if($("#my-info" + id_str).length < 1){
-            let modal = `
-            <div class="modal fade" id="my-info${id_str}" tabindex="-1" role="dialog" aria-labelledby="my-info-label" aria-hidden="true">
-                <div class="modal-dialog">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
-                            <h4 class="modal-title" id="my-info-label${id_str}">模态框（Modal）标题</h4>
-                        </div>
-                        <div class="modal-body" id="my-info-content${id_str}">在这里添加一些文本</div>
-                    </div>
-                </div>
-            </div>`;
-            $("body").append($(modal));
-            // 避免点击背景时退出, esc依然退出，不取消右上角关闭按钮
-            $("#my-info").modal({backdrop: 'static', keyboard: true});
+        // 关闭并销毁同id旧弹框
+        let $old = $("#my-info" + id_str);
+        if ($old.length > 0) {
+            $old.modal('hide');
+            $old.remove();
         }
+
+        let modal = `
+        <div class="modal fade" id="my-info${id_str}" tabindex="-1" role="dialog" aria-labelledby="my-info-label" aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+                        <h4 class="modal-title" id="my-info-label${id_str}">模态框（Modal）标题</h4>
+                    </div>
+                    <div class="modal-body" id="my-info-content${id_str}">在这里添加一些文本</div>
+                </div>
+            </div>
+        </div>`;
+        $("body").append($(modal));
+        let $modal = $("#my-info" + id_str);
+        // 关闭时销毁
+        $modal.on('hidden.bs.modal', function(){
+            $modal.remove();
+        });
+        // 避免点击背景时退出, esc依然退出，不取消右上角关闭按钮
+        $modal.modal({backdrop: 'static', keyboard: true});
+
         $("#my-info-label" + id_str).text(title);
         $("#my-info-content" + id_str).html(content);
-        $("#my-info" + id_str).modal('show');
+        $modal.modal('show');
         MyModal.Resize('#my-info' + id_str, width, height);
         MyModal.SetMaxZIndex('#my-info' + id_str);
-        return $("#my-info" + id_str);
+        return $modal;
     }
 
 
@@ -402,6 +413,10 @@ var MyModal = class {
                 </div>
             </div>`;
             $("body").append($(modal));
+            // 关闭时销毁
+            $("#my-alert").on('hidden.bs.modal', function(){
+                $(this).remove();
+            });
             // 避免点击时退出,esc依然退出
             $("#my-alert").modal({backdrop: 'static', keyboard: true});
         }
@@ -451,6 +466,10 @@ var MyModal = class {
                 </div>
             </div>`
             $("body").append($(modal));
+            // 关闭时销毁
+            $("#my-confirm").on('hidden.bs.modal', function(){
+                $(this).remove();
+            });
             // 避免点击及esc时退出
             $("#my-confirm").modal({backdrop: 'static', keyboard: false});
         }
@@ -512,6 +531,27 @@ var MyModal = class {
             modal_dialog.css({'margin': m_top + 'px auto'});
             modal_dialog.css({'max-height': win_height - 100 + 'px', 'max-width': win_width - 100 + 'px'});
         }, 200);
+    }
+
+    /**
+     * 显示渐隐提示 Toast
+     * @static
+     * @param {string} text - 提示文本
+     * @param {number} [duration=2000] - 显示时长（毫秒）
+     */
+    static Toast(text, duration=2000) {
+        var $toast = $('<div class="toast-notification">' + text + '</div>');
+        $('body').append($toast);
+        // 强制回流以触发过渡
+        $toast[0].offsetHeight;
+        $toast.addClass('show');
+        setTimeout(function() {
+            $toast.removeClass('show');
+            // 等过渡动画结束后移除元素
+            setTimeout(function() {
+                $toast.remove();
+            }, 300);
+        }, duration);
     }
 }
 

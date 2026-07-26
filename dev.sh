@@ -28,7 +28,8 @@ function show_help() {
     echo "Usage: ./dev.sh <command> [options]"
     echo ""
     echo "Commands:"
-    echo "  new       版本号中间位数 +1（如 0.5.2 -> 0.6.0），末尾归零"
+    echo "  new       小版本 +1（如 0.5.2 -> 0.5.3），末位递增"
+    echo "  new major 大版本 +1（如 0.5.2 -> 0.6.0），中间位递增、末位归零"
     echo "  chg       将 change_log.txt 修改时间之后的 git 提交记录追加到最新变更"
     echo "  build     运行当前平台的构建命令"
     echo "  pack      构建并打包为 zip 或分片压缩包"
@@ -91,11 +92,24 @@ function incr_version() {
     local minor=$(echo "$ver" | cut -d. -f2)
     local patch=$(echo "$ver" | cut -d. -f3)
 
-    local new_minor=$((minor + 1))
-    local new_ver="$major.$new_minor.0"
+    if [ "$1" == "major" ]; then
+        local new_minor=$((minor + 1))
+        local new_ver="$major.$new_minor.0"
+        Info "升级大版本（中间位）"
+    else
+        local new_patch=$((patch + 1))
+        local new_ver="$major.$minor.$new_patch"
+        Info "升级小版本（末位）"
+    fi
 
     sed -i "s/\"version\": \"$ver\"/\"version\": \"$new_ver\"/" "$PKG"
     Info "版本号: $ver -> $new_ver"
+
+    # 在 change_log.txt 末尾追加空行和新版本信息
+    local changelog="$S_DIR/change_log.txt"
+    echo "" >> "$changelog"
+    echo "$new_ver" >> "$changelog"
+    Info "已更新 $changelog"
     _elapsed $t_start
 }
 
@@ -125,11 +139,6 @@ function pack(){
     cd "$S_DIR" && $BUILD_CMD
     CheckOption "$BUILD_CMD 执行失败"
 
-    # linux-arm64 同时生成增量标签
-    if [ "$PLATFORM" == "arm" ]; then
-        incr label
-    fi
-
     # 打包
     local src_dir="$S_DIR/dist/$BUILD_DIR"
     if [ ! -d "$src_dir" ]; then
@@ -147,6 +156,10 @@ function pack(){
             mv "$OUTPUT_NAME" "$BUILD_DIR" &&
             Info "已打包为 $OUTPUT_NAME-$version.zip 及分片文件"
         CheckOption "打包 $OUTPUT_NAME 失败"
+
+        # linux-arm64 同时生成增量包
+        incr;
+        CheckOption "生成增量包失败";
     else
         # Windows/Linux x86: 整体 zip
         Info "开始将 $BUILD_DIR 打包为 $OUTPUT_NAME-$version.zip ..."
@@ -175,6 +188,7 @@ function incr(){
         exit 1
     fi
 
+    cd $S_DIR;
     # 仅生成标签文件
     if [ -n "$label_flag" ]; then
         find "$dist_dir/" -type f | xargs md5sum | sort > "$LABEL_FILE"
@@ -353,7 +367,7 @@ function chg(){
 # ===== 主入口 =====
 case "$1" in
     new)
-        incr_version
+        incr_version "$2"
         ;;
     chg)
         chg

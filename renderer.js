@@ -246,7 +246,7 @@ function UpdateLastNote(v){
         }
     }
 
-    $("#edit-flag").hide();
+    $("#edit-flag").removeClass('visible');
     Info("已重新加载《" + v.name + "》");
 }
 
@@ -283,8 +283,6 @@ const UpdateLastNoteGutter = (function(){
         var estDigits = String(Math.max(0, lines.length - 1)).length;
         var gutterW = Math.min(140, Math.max(20, estDigits * 8 + 8)) + 'px';
         gutter.style.width = gutterW;
-        var defaultTabA = document.querySelector('#default-note-title-btn > .top-nav');
-        if (defaultTabA) defaultTabA.style.minWidth = defaultTabA.style.maxWidth = defaultTabA.style.width = gutterW;
 
         var style = window.getComputedStyle(ta);
 
@@ -453,8 +451,6 @@ const UpdateLastNoteGutter = (function(){
             var digits = String(Math.max(0, totalVisual - 1)).length;
             var gutterW = Math.min(140, Math.max(20, digits * 8 + 8)) + 'px';
             gutter.style.width = gutterW;
-            var defaultTabA = document.querySelector('#default-note-title-btn > .top-nav');
-            if (defaultTabA) defaultTabA.style.minWidth = defaultTabA.style.maxWidth = defaultTabA.style.width = gutterW;
         } catch(e) { /* ignore */ }
     };
 })();
@@ -777,11 +773,9 @@ $(function(){
     $("#last-note").on('input', MyTimer.Debounce(()=>{
         var cur = $("#last-note").val();
         if(IsLastModify()){
-            $("#edit-flag").show();
-            $("#diff-note-btn").removeClass('disabled');
+            $("#edit-flag").addClass('visible');
         }else{
-            $("#edit-flag").hide();
-            $("#diff-note-btn").addClass('disabled');
+            $("#edit-flag").removeClass('visible');
         }
     }, 200));
 
