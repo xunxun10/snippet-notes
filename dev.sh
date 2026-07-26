@@ -132,7 +132,7 @@ function pack(){
     local version=$(grep '"version"' "$PKG" | awk -F '"' '{print $4}')
 
     # 清理旧包
-    rm -rf "$S_DIR/dist/$OUTPUT_NAME"*.zip
+    rm -f "$S_DIR/dist/$OUTPUT_NAME"*.zip "$S_DIR/dist/$OUTPUT_NAME"*.z01 "$S_DIR/dist/$OUTPUT_NAME"*.z02 "$S_DIR/dist/$OUTPUT_NAME"*.z03
 
     # 构建
     Info "开始执行 $BUILD_CMD ..."
@@ -191,14 +191,14 @@ function incr(){
     cd $S_DIR;
     # 仅生成标签文件
     if [ -n "$label_flag" ]; then
-        find "$dist_dir/" -type f | xargs md5sum | sort > "$LABEL_FILE"
+        find "./dist/$BUILD_DIR/" -type f | xargs md5sum | sort > "$LABEL_FILE"
         Info "已生成标签文件: $LABEL_FILE"
         _elapsed $t_start
         return 0
     fi
 
     # 增量对比
-    local new_md5=$(find "$dist_dir/" -type f | xargs md5sum | sort)
+    local new_md5=$(find "./dist/$BUILD_DIR/" -type f | xargs md5sum | sort)
     if [ ! -f "$LABEL_FILE" ]; then
         Error "标签文件 $LABEL_FILE 不存在，请先用 'incr label' 生成"
         exit 1
