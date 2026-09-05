@@ -665,9 +665,9 @@ function InitSize(){
     $("#res-detail").css('max-height', ($(window).height() - 120) + 'px');
     // 如果为md编辑器模式则重置md编辑器大小
     if(md_editor_state.shown){
-        // 当前内容同步到textarea后重建，以应用新的高度
+        // 当前内容同步到textarea后重建，以应用新的高度；'self'保持重建前的浏览位置
         $("#last-note").val(GetCurModifyNoteContent());
-        ShowMdEditor();
+        ShowMdEditor('self');
     }
 }
 
@@ -688,8 +688,173 @@ function GetNavTabsHeight(){
 function GetEditorHeight(){
     return $("#last-note-board").height() - GetNavTabsHeight();
 }
+
+// ================= md/文本模式切换时的位置互相同步 =================
+// 归一化锚点文本：去除空白与常见md语法字符，使源码行与渲染块文本可互相对应匹配
+function MdPosNormalize(s){
+    return String(s || "").replace(/[\s#*_`~>$|\[\]()!+-]/g, "");
+}
+// 取idx所在行的文本作为锚点；空行或纯语法行（代码围栏/分隔线/表格分隔行）向后顺延到最近的内容行
+function TextAnchorAt(val, idx){
+    let p = Math.max(0, Math.min(idx, val.length));
+    for(let k = 0; k < 8 && p <= val.length; k++){
+        const ls = p > 0 ? val.lastIndexOf('\n', p - 1) + 1 : 0;
+        let le = val.indexOf('\n', p);
+        if(le < 0){ le = val.length; }
+        const line = val.substring(ls, le).trim();
+        if(line && !/^(`{3,}|~{3,}|-{3,}$|={3,}$|\*{3,}$)/.test(line) && !/^\|[\s:\-|]*$/.test(line)){
+            return line.substring(0, 40);
+        }
+        if(le >= val.length){ break; }
+        p = le + 1;
+    }
+    return "";
+}
+// 捕获文本编辑器当前位置：光标在可视区内时以光标行为锚点，否则以滚动比例估算可视区顶部行为锚点
+// 可视区判定用内容占比而非行号（软折行时行号与像素不对应，占比判断更稳）
+function CaptureTextPos(){
+    const pos = { anchor: "", ratio: 0 };
+    const ta = document.getElementById('last-note');
+    if(!ta){ return pos; }
+    const val = ta.value || "";
+    const scrollable = ta.scrollHeight - ta.clientHeight;
+    if(scrollable > 0){
+        pos.ratio = ta.scrollTop / scrollable;
+    }
+    let idx = -1;
+    if(ta.selectionStart != null && val.length > 0){
+        // 光标位置与可视区中心的内容占比接近时，视为光标在可视区内
+        const caret_frac = ta.selectionStart / val.length;
+        const view_frac = (ta.scrollTop + ta.clientHeight / 2) / ta.scrollHeight;
+        if(Math.abs(caret_frac - view_frac) < 0.12){
+            idx = ta.selectionStart;
+        }
+    }
+    if(idx < 0 && ta.scrollTop > 0 && val.length > 0){
+        idx = Math.round(pos.ratio * val.length);
+    }
+    if(idx >= 0){
+        pos.anchor = TextAnchorAt(val, idx);
+    }
+    return pos;
+}
+// 在md源文本中查找锚点位置：渲染文本与源码可能存在内联语法差异（如**加粗**），
+// 逐级缩短前缀重试（前缀去尾随空格，兼容中文等无空格语言）；并优先在滚动比例
+// 预估位置附近查找，降低重复段落误匹配
+function FindMdAnchorIndex(md, anchor, est){
+    const a = String(anchor || "").trim();
+    if(a.length < 3){ return -1; }
+    const lens = [30, 20, 12, 8, 5, 3];
+    for(const len of lens){
+        if(len > a.length){ continue; }
+        const pre = a.substring(0, len).trim();
+        if(pre.length < 2){ continue; }
+        if(est != null){
+            const i = md.indexOf(pre, Math.max(0, est - 2500));
+            if(i >= 0 && i <= est + 2500){ return i; }
+        }
+        const j = md.indexOf(pre);
+        if(j >= 0){ return j; }
+    }
+    return -1;
+}
+// 获取md编辑器内当前选区所在的块级元素（段落/标题/列表项/单元格/代码行）
+function MdSelBlockEl(root){
+    try{
+        const s = window.getSelection();
+        if(!s || !s.anchorNode || !root.contains(s.anchorNode)){ return null; }
+        let el = s.anchorNode.nodeType === 3 ? s.anchorNode.parentElement : s.anchorNode;
+        while(el && el !== root){
+            const tag = el.tagName ? el.tagName.toLowerCase() : '';
+            const cls = (typeof el.className === 'string') ? el.className : '';
+            if(tag === 'p' || /^h[1-6]$/.test(tag) || tag === 'li' || tag === 'td' || tag === 'th'
+                || cls.indexOf('cm-line') >= 0 || cls.indexOf('cm-content') >= 0 || cls.indexOf('ProseMirror') >= 0){
+                return el.classList.contains('ProseMirror') ? null : el;
+            }
+            el = el.parentElement;
+        }
+    }catch(e){}
+    return null;
+}
+// 取md编辑器可视区顶部的首个内容块（与目录高亮判定线一致：视口顶部下方40px）
+function MdViewTopBlockEl(root, pm){
+    const line = root.getBoundingClientRect().top + 40;
+    for(const c of pm.children){
+        const cr = c.getBoundingClientRect();
+        if(cr.height > 0 && cr.bottom > line){ return c; }
+    }
+    return null;
+}
+// 捕获md编辑器当前位置：光标所在块（需在可视区内）或可视区顶部块的文本锚点 + 滚动比例
+function CaptureMdPos(){
+    const pos = { anchor: "", ratio: 0 };
+    const root = document.getElementById('md-editor');
+    if(!root){ return pos; }
+    if(root.scrollHeight > root.clientHeight){
+        pos.ratio = root.scrollTop / (root.scrollHeight - root.clientHeight);
+    }
+    const pm = root.querySelector('.ProseMirror');
+    if(!pm){ return pos; }
+    let el = MdSelBlockEl(root);
+    if(el){
+        // 光标块不在可视区时改用可视区顶部块，保证跳转的是正在查看的位置
+        const r = el.getBoundingClientRect(), rr = root.getBoundingClientRect();
+        if(r.bottom <= rr.top + 40 || r.top >= rr.bottom - 40){ el = null; }
+    }
+    if(!el){ el = MdViewTopBlockEl(root, pm); }
+    if(el && el.textContent){
+        pos.anchor = el.textContent.trim().replace(/\s+/g, ' ').substring(0, 40);
+    }
+    return pos;
+}
+// 切回文本模式后，恢复到md编辑器对应位置（锚点行首定位光标，失败时按滚动比例）
+function RestoreTextPos(pos){
+    if(!pos){ return; }
+    const ta = document.getElementById('last-note');
+    if(!ta){ return; }
+    const val = ta.value || "";
+    const est = pos.ratio > 0 ? Math.round(pos.ratio * val.length) : null;
+    let idx = FindMdAnchorIndex(val, pos.anchor, est);
+    if(idx >= 0){
+        idx = val.lastIndexOf('\n', idx) + 1; // 对齐到锚点所在行行首
+        ta.focus();
+        try{ ta.setSelectionRange(idx, idx); }catch(e){}
+        MyScroll.ToTextareaPosition('#last-note', idx);
+    }else if(pos.ratio > 0 && ta.scrollHeight > ta.clientHeight){
+        ta.scrollTop = Math.round(pos.ratio * (ta.scrollHeight - ta.clientHeight));
+    }
+    // 程序设置scrollTop不触发scroll事件，手动同步行号列
+    $(ta).trigger('scroll');
+}
+// 切到md模式后，恢复到文本编辑器对应位置（锚点所在块滚动到顶部，失败时按滚动比例）
+function RestoreMdPos(pos){
+    const root = document.getElementById('md-editor');
+    if(!pos || !root){ return; }
+    const pm = root.querySelector('.ProseMirror');
+    if(pos.anchor && pm){
+        const key = MdPosNormalize(pos.anchor).substring(0, 12);
+        if(key.length >= 2){
+            for(const el of pm.children){
+                if(!el.textContent){ continue; }
+                if(MdPosNormalize(el.textContent).indexOf(key) >= 0){
+                    el.scrollIntoView({ behavior: 'auto', block: 'start' });
+                    return;
+                }
+            }
+        }
+    }
+    if(pos.ratio > 0 && root.scrollHeight > root.clientHeight){
+        root.scrollTop = Math.round(pos.ratio * (root.scrollHeight - root.clientHeight));
+    }
+}
+
 // milkdown.min.js 在 index.html 中同步加载，md模式下可立即使用
-function ShowMdEditor(){
+// restore：位置恢复参数。传CaptureTextPos()结果表示切到md后恢复到文本对应位置；
+// 传'self'表示重建场景（窗口调整等）自动保持当前md编辑器位置；不传则不恢复（内容已变化）
+function ShowMdEditor(restore){
+    if(restore === 'self'){
+        restore = (md_editor_state.shown && md_editor_state.crepe) ? CaptureMdPos() : null;
+    }
     let mdDiv = $("#md-editor");
     // 显示md编辑器，隐藏 last-note 包裹容器（含行号）
     $(".last-note-wrapper").hide();
@@ -698,7 +863,7 @@ function ShowMdEditor(){
     $("#md-toc").css('top', GetNavTabsHeight() + 'px').show();
     MdToc.update($("#last-note").val());
     $("#md-mode-btn").addClass('active');
-    $("#file-md-mode-btn").addClass('active');
+    $("#file-md-mode-btn").addClass('active').attr('title', '切换为文本模式');
     // 设置编辑器高度后重建 Crepe（所见即所得），数据源为 #last-note
     mdDiv.css('height', GetEditorHeight() + 'px');
     md_editor_state.shown = true;
@@ -716,6 +881,7 @@ function ShowMdEditor(){
             [MilkdownCrepe.Feature.Table]: true,
         },
     });
+    let crepe = md_editor_state.crepe;
     // 编辑内容变化时同步回 #last-note，驱动 edit-flag 等原有逻辑
     md_editor_state.crepe.on((listener)=>{
         listener.markdownUpdated((_, md)=>{
@@ -726,6 +892,10 @@ function ShowMdEditor(){
     });
     md_editor_state.crepe.create().then(()=>{
         TriggerNoteInput();
+        if(restore && md_editor_state.crepe === crepe){
+            // 等待一帧确保布局完成后，恢复到切换前文本编辑器的对应位置
+            requestAnimationFrame(function(){ RestoreMdPos(restore); });
+        }
     });
 }
 function HideMdEditor(update_last_note = true){
@@ -736,7 +906,7 @@ function HideMdEditor(update_last_note = true){
     $("#md-toc").hide();
     md_editor_state.shown = false;
     $("#md-mode-btn").removeClass('active');
-    $("#file-md-mode-btn").removeClass('active');
+    $("#file-md-mode-btn").removeClass('active').attr('title', 'markdown编辑器');
     // 更新last-note为md编辑器的内容
     if(update_last_note && md_editor_state.crepe){
         try{ $("#last-note").val(md_editor_state.crepe.getMarkdown()); }catch(e){}
@@ -752,10 +922,13 @@ function HideMdEditor(update_last_note = true){
 }
 function SwitchMdEditor(){
     if(md_editor_state.shown){
-        // 隐藏md编辑器
+        // 切换前捕获md编辑器位置，切回文本模式后恢复到对应位置
+        let pos = CaptureMdPos();
         HideMdEditor();
+        RestoreTextPos(pos);
     }else{
-        ShowMdEditor();
+        // 切换前捕获文本编辑器位置，切到md模式后恢复到对应位置
+        ShowMdEditor(CaptureTextPos());
     }
     // 文件模式下记录当前文件的编辑器模式，切换文件时恢复
     let f = CurFile();
