@@ -219,6 +219,41 @@ var MyString = class{
     static EscapeRegExp(str) {
         return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
+
+    /**
+     * 轻量日志预览：替代 JSON.stringify(data).substring(n)，避免对含大文本
+     * （如整篇笔记内容）的消息做全量序列化，只输出浅层键值摘要
+     */
+    static LogData(data, max_len = 150){
+        try{
+            if(data == null) return '';
+            if(typeof data == 'string'){
+                let s = data.length > max_len ? data.substring(0, max_len) + '...[len=' + data.length + ']' : data;
+                return s.replace(/[\r\n]+/g, ' ');
+            }
+            if(typeof data == 'object'){
+                if(Array.isArray(data)) return '[' + data.length + ' items]';
+                let parts = [];
+                for(let k of Object.keys(data).slice(0, 10)){
+                    let v = data[k];
+                    if(typeof v == 'string'){
+                        let s = v.length > 30 ? v.substring(0, 30) + '..' : v;
+                        parts.push(k + ':' + s.replace(/[\r\n]+/g, ' '));
+                    }else if(typeof v == 'object'){
+                        parts.push(k + ':{...}');
+                    }else{
+                        parts.push(k + ':' + v);
+                    }
+                }
+                return parts.join(', ');
+            }
+            let s = String(data);
+            s = s.length > max_len ? s.substring(0, max_len) + '...[len=' + s.length + ']' : s;
+            return s.replace(/[\r\n]+/g, ' ');
+        }catch(e){
+            return '(log preview error)';
+        }
+    }
 };
 
 var MyScroll = class {

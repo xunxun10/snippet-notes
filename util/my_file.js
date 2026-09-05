@@ -37,6 +37,15 @@ class MyFile{
     }
 
     /**
+     * 同步方式保存文件，失败时抛出异常（保存完成才返回，便于调用方确认结果）
+     * @param {*} file_path 
+     * @param {*} contents 
+     */
+    static SyncSave(file_path, contents){
+        fs.writeFileSync(file_path, contents, 'utf8');
+    }
+
+    /**
      * 读取失败时抛出异常
      * @param {*} file_path 
      * @returns 

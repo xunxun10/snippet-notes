@@ -3,6 +3,9 @@
 // 页面渲染逻辑
 
 let note_data = { last_note_range:null, last_note:{}, first_open:true };
+// 本地文件编辑模式状态（只支持md文件）
+// files: [{path, name, content(磁盘已保存内容), working(编辑中内容), md_shown(该文件的编辑器模式)}]
+let file_data = { mode:false, files:[], cur_index:-1 };
 // 缓存上一次 gutter 的行文本，用于增量更新
 // 缓存上一次 gutter 的内容（用于快速跳过无变更情况）
 // (moved into function-private closure below)
@@ -23,6 +26,11 @@ if(typeof window.electronAPI != 'undefined'){
                 ShowDiffToolPanel();
             },
             "modify-last-note":function(v){
+                if(file_data.mode){
+                    // 文件模式下只记录笔记数据（如保存完成通知），返回笔记模式时恢复显示
+                    note_data.last_note = v;
+                    return;
+                }
                 UpdateLastNote(v);
             },
             "show_search_results":function(v){
@@ -36,13 +44,32 @@ if(typeof window.electronAPI != 'undefined'){
                 MyModal.Alert("<div class='ModalInfoDiv'>" + value + "</div>", null, 800);
             },
             "save-note":function(v){
-                SaveAndUpdateNote();
+                if(file_data.mode){
+                    // 文件模式下保存当前本地文件
+                    SaveCurLocalFile();
+                }else{
+                    SaveAndUpdateNote();
+                }
             },
             "update-note-detail":function(v){
                 UpdateDetail(v.name, v.id, v.content);
             },
             "check-modify-before-close":function(v){
-                if(IsLastModify()){
+                if(file_data.mode){
+                    // 文件模式：检查所有打开文件的未保存修改
+                    if(HasUnsavedFiles()){
+                        MyModal.Confirm("本地文件有未保存修改，是否保存后退出 ？", function(){
+                            SaveAllModifiedFiles();
+                            CallSys("close-app");
+                        }, function(){
+                            Info("请先保存修改再退出");
+                        }, { text:"丢弃变更", fun:function(){
+                            CallSys("close-app");
+                        }}, "文件内容已被修改", 600, 100);
+                    }else{
+                        CallSys("close-app");
+                    }
+                }else if(IsLastModify()){
                     MyModal.Confirm("是否丢弃修改,直接退出 ？", function(){
                         CallSys("close-app");
                     }, function(){
@@ -51,6 +78,43 @@ if(typeof window.electronAPI != 'undefined'){
                 }else{
                     CallSys("close-app");
                 }
+            },
+            "trigger-open-file":function(v){
+                // 菜单触发打开本地文件
+                OpenLocalFileDialog();
+            },
+            "open-local-files":function(paths){
+                // 文件选择对话框选择的文件：文件模式直接在当前窗口打开，笔记模式新开独立进程
+                if(!Array.isArray(paths) || paths.length == 0) return;
+                if(file_data.mode){
+                    DoOpenFiles(paths);
+                }else{
+                    // 笔记模式：新开进程打开文件，当前笔记界面不受影响
+                    CallSys('open-files-new-process', paths);
+                }
+            },
+            "startup-open-local-files":function(paths){
+                // 本进程启动参数携带的文件（即新开的文件进程），直接进入文件模式
+                if(!Array.isArray(paths) || paths.length == 0) return;
+                DoOpenFiles(paths);
+            },
+            "load-local-file":function(v){
+                // 后台读取本地文件完成
+                AddLocalFile(v.path, v.content);
+            },
+            "local-file-saved":function(v){
+                // 后台保存本地文件完成
+                let f = file_data.files.find(x => x.path === v.path);
+                if(!f) return;
+                f.content = v.content;
+                if(file_data.files[file_data.cur_index] === f){
+                    // 当前文件：working取编辑器实时内容（保存期间可能继续编辑）
+                    f.working = GetCurModifyNoteContent();
+                }else{
+                    f.working = v.content;
+                }
+                Info("已保存《" + f.name + "》");
+                RenderFileTabs();
             },
             'show-all-note-names':function(note_names){
                 ShowNoteList(note_names);
@@ -80,7 +144,7 @@ if(typeof window.electronAPI != 'undefined'){
 function CallSys(type, obj=null){
     var msg = {type:type, data:obj}
 
-    console.debug("send to sys: " + type + ' ' + JSON.stringify(msg).substring(0, 100))
+    console.debug("send to sys: " + type + ' ' + MyString.LogData(obj, 200))
 
     if(typeof window.electronAPI != 'undefined'){
         window.electronAPI.CallSys(msg);
@@ -189,10 +253,34 @@ function UpdateLastNote(v){
     $("#last-note-title").text(v.name);
     last_note_ele.val(v.content)
 
+    // 字体类型切换需在行号测量前完成，否则测量使用旧字体导致折行不准
+    if(v.name[0] == '#'){
+        // 设置字体为等宽字体
+        last_note_ele.addClass('equal-width-font');
+    }else{
+        // 设置字体为默认字体
+        last_note_ele.removeClass('equal-width-font');
+    }
+
     // 同步左侧行号列
-    UpdateLastNoteGutter(v.content);
-    // 触发滚动同步
-    $("#last-note").trigger('scroll');
+    // 大笔记的全量折行测量需模拟排版、较耗时，延后到首帧渲染后空闲时执行：
+    // 先让笔记文本显示出来，行号列稍后跟上（完成后再补一次滚动同步对齐）。
+    // 延迟执行时读取当前文本而非快照，期间若有编辑/模式切换也能测量到最新内容
+    if(v.content && v.content.length > 50000){
+        var run_gutter = function(){
+            UpdateLastNoteGutter($("#last-note").val());
+            $("#last-note").trigger('scroll');
+        };
+        if(window.requestIdleCallback){
+            requestIdleCallback(run_gutter, {timeout: 500});
+        }else{
+            setTimeout(run_gutter, 50);
+        }
+    }else{
+        UpdateLastNoteGutter(v.content);
+        // 触发滚动同步
+        $("#last-note").trigger('scroll');
+    }
 
     // 根据文件标题自动确定编辑器类型
     if(note_data.first_open){
@@ -218,14 +306,6 @@ function UpdateLastNote(v){
         }
     }
 
-    if(v.name[0] == '#'){
-        // 设置字体为等宽字体
-        last_note_ele.addClass('equal-width-font');
-    }else{
-        // 设置字体为默认字体
-        last_note_ele.removeClass('equal-width-font');
-    }
-
     // 触发input
     TriggerNoteInput();
 
@@ -238,10 +318,25 @@ function UpdateLastNote(v){
     }else{
         // 默认滚动到文件末尾
         if(note_data.first_open){
-            last_note_ele.animate({scrollTop: last_note_ele.prop("scrollHeight") + 'px'}, 200, function(){
-                // 动画完成后重新同步行号滚动（animate 不触发 scroll 事件）
-                $("#last-note").trigger('scroll');
-            });
+            // 大文本布局是渐进完成的，且行号列渲染会改变文本区宽度使内容重新换行，
+            // 滚动后scrollHeight仍会增长，需监测并补滚至布局稳定
+            var scroll_to_end = function(){
+                last_note_ele.animate({scrollTop: last_note_ele.prop("scrollHeight") + 'px'}, 200, function(){
+                    // 动画完成后重新同步行号滚动（animate 不触发 scroll 事件）
+                    $("#last-note").trigger('scroll');
+                });
+            };
+            scroll_to_end();
+            var prev_h = last_note_ele.prop("scrollHeight");
+            var watch_growth = function(left){
+                var h = last_note_ele.prop("scrollHeight");
+                if(h > prev_h + 5){
+                    prev_h = h;
+                    scroll_to_end();
+                }
+                if(left > 0) setTimeout(function(){ watch_growth(left - 1); }, 250);
+            };
+            setTimeout(function(){ watch_growth(7); }, 300);
             note_data.first_open = false;
         }
     }
@@ -269,11 +364,16 @@ const UpdateLastNoteGutter = (function(){
     var _prevWidth = null;           // 上次 textarea 可用宽度（px）
     var _prevVisualCounts = [];      // 上次每逻辑行的可视行数
     var _measureDiv = null;          // 复用的测量用隐藏 div
+    var _prevFontSig = null;         // 上次测量时的字体签名（字体变化需重新测量）
+    var _prevBase = null;            // 上次渲染的行号起始值（模式切换时需强制重绘）
 
     return function(content){
         var gutter = document.getElementById('last-note-gutter');
         var ta = document.getElementById('last-note');
         if (!gutter || !ta) return;
+
+        // 行号起始值：文件模式从1开始，笔记模式保持从0开始
+        var lineNoBase = file_data.mode ? 1 : 0;
 
         // 0. 分割逻辑行（提前，用于估算 gutter 宽度）
         var lines = (content == null) ? [''] : content.split('\n');
@@ -291,8 +391,9 @@ const UpdateLastNoteGutter = (function(){
         var paddingRight = parseFloat(style.paddingRight) || 0;
         var contentWidth = Math.max(0, ta.clientWidth - paddingLeft - paddingRight);
 
-        // 2. 内容和宽度都没变 → 无需任何操作
-        if (_prevWidth === contentWidth && content === _prevContent) return;
+        // 1a. 编辑区隐藏时（md模式下last-note-wrapper不可见）clientWidth为0，
+        //     此时按0宽度测量会产生错误的折行缓存，直接跳过等待可见时再测量
+        if (contentWidth <= 0) return;
 
         // 5. 初始化/更新测量用隐藏 div
         if (!_measureDiv) {
@@ -309,20 +410,53 @@ const UpdateLastNoteGutter = (function(){
             _measureDiv.style.padding = '0px';
             _measureDiv.style.border = '0';
             _measureDiv.style.margin = '0';
+            document.body.appendChild(_measureDiv);
+        }
+
+        // 5a. 字体变化时（笔记/文件模式切换等宽字体、md笔记自动切换字体等）
+        //     同步测量div字体并使缓存失效，否则折行测量全部不准
+        var fontSig = style.fontFamily + '|' + style.fontSize + '|' + style.lineHeight + '|' + style.fontWeight;
+        if (_prevFontSig !== fontSig) {
+            _prevFontSig = fontSig;
             _measureDiv.style.font = style.font;
             _measureDiv.style.fontSize = style.fontSize;
             _measureDiv.style.fontFamily = style.fontFamily;
             _measureDiv.style.lineHeight = style.lineHeight;
-            document.body.appendChild(_measureDiv);
+            _measureDiv.style.fontWeight = style.fontWeight;
+            _prevContent = null;
+            _prevVisualCounts = [];
         }
+
+        // 2. 字体、内容、宽度和行号起始值都没变 → 无需任何操作
+        if (_prevWidth === contentWidth && content === _prevContent && _prevBase === lineNoBase) return;
+
         _measureDiv.style.width = contentWidth + 'px';
 
         // 3.5 从测量 div 实测单行实际高度（比解析 style.lineHeight 精确）
         _measureDiv.textContent = 'x';
         var actualLineHeight = _measureDiv.offsetHeight;
 
-        // 4. 计算每逻辑行的可视行数
-        var cacheValid = (_prevWidth === contentWidth && _prevVisualCounts.length > 0);
+        // 批量测量 [from, to) 行的可视行数：拼HTML一次性写入再统一读取高度，
+        // 全程只触发一次强制布局（逐行 set+read 会每行都强制布局，大文件时慢一个数量级）
+        var MeasureLines = function(from, to){
+            var counts = new Array(Math.max(0, to - from));
+            if(to <= from) return counts;
+            var parts = new Array(to - from);
+            for(var i = from; i < to; i++){
+                // 转义文本避免内容中的标签被解析（& < > 足够，引号在文本节点无影响）
+                parts[i - from] = '<div>' + String(lines[i] == '' ? ' ' : lines[i]).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+            }
+            _measureDiv.innerHTML = parts.join('');
+            var nodes = _measureDiv.childNodes;
+            for(var i = 0; i < nodes.length; i++){
+                counts[i] = Math.max(1, Math.ceil(nodes[i].offsetHeight / actualLineHeight - 0.001));
+            }
+            _measureDiv.textContent = '';
+            return counts;
+        };
+
+        // 4. 计算每逻辑行的可视行数（行号起始值变化时走全量重建，否则内容未变时增量路径会跳过重绘）
+        var cacheValid = (_prevWidth === contentWidth && _prevVisualCounts.length > 0 && _prevBase === lineNoBase);
         var visualCounts = new Array(lines.length);
         var totalVisual = 0;      // 总可视行数
         var startIdx = 0;         // 第一个需要重建 DOM 的逻辑行索引
@@ -357,14 +491,10 @@ const UpdateLastNoteGutter = (function(){
                 }
 
                 // 测量变更区间 [startIdx, suffixStart)
+                var m_counts = MeasureLines(startIdx, suffixStart);
                 for (var i = startIdx; i < suffixStart; i++) {
-                    _measureDiv.textContent = lines[i] || ' ';
-                    var ratio = _measureDiv.offsetHeight / actualLineHeight;
-                    // 用 ceil 替代 round：如果文本占用了超过 N 行空间，就需要 N+1 个可视行
-                    // 减 0.001 epsilon 避免浮点误差（如 2.000001 → ceil(1.999001) = 2）
-                    var cnt = Math.max(1, Math.ceil(ratio - 0.001));
-                    visualCounts[i] = cnt;
-                    totalVisual += cnt;
+                    visualCounts[i] = m_counts[i - startIdx];
+                    totalVisual += visualCounts[i];
                 }
 
                 // 复制未变化的后缀
@@ -379,13 +509,10 @@ const UpdateLastNoteGutter = (function(){
             }
         } else {
             // ----- 6b. 缓存无效：全量测量所有行 -----
+            var m_counts = MeasureLines(0, lines.length);
             for (var i = 0; i < lines.length; i++) {
-                _measureDiv.textContent = lines[i] || ' ';
-                var ratio = _measureDiv.offsetHeight / actualLineHeight;
-                // 用 ceil 替代 round：如果文本占用了超过 N 行空间，就需要 N+1 个可视行
-                var cnt = Math.max(1, Math.ceil(ratio - 0.001));
-                visualCounts[i] = cnt;
-                totalVisual += cnt;
+                visualCounts[i] = m_counts[i];
+                totalVisual += visualCounts[i];
             }
         }
 
@@ -406,7 +533,7 @@ const UpdateLastNoteGutter = (function(){
                 var cnt = visualCounts[i];
                 var lnDiv = document.createElement('div');
                 lnDiv.className = 'gutter-line';
-                lnDiv.textContent = String(i);
+                lnDiv.textContent = String(i + lineNoBase);
                 lnDiv.style.height = (cnt * actualLineHeight) + 'px';
                 frag.appendChild(lnDiv);
             }
@@ -421,30 +548,25 @@ const UpdateLastNoteGutter = (function(){
                 for (var i = suffixStart; i < lines.length; i++) {
                     var node = gutter.childNodes[i];
                     if (node) {
-                        node.textContent = String(i);
+                        node.textContent = String(i + lineNoBase);
                         node.style.height = (visualCounts[i] * actualLineHeight) + 'px';
                     }
                 }
             }
         } else {
-            // ----- 7b. 全量重建：清除后一次性创建所有节点 -----
-            gutter.textContent = '';
-            var frag = document.createDocumentFragment();
+            // ----- 7b. 全量重建：拼HTML一次性写入（比逐个createElement快数倍，行号为纯数字无转义问题） -----
+            var html_parts = new Array(lines.length);
             for (var i = 0; i < lines.length; i++) {
-                var cnt = visualCounts[i];
-                var lnDiv = document.createElement('div');
-                lnDiv.className = 'gutter-line';
-                lnDiv.textContent = String(i);
-                lnDiv.style.height = (cnt * actualLineHeight) + 'px';
-                frag.appendChild(lnDiv);
+                html_parts[i] = '<div class="gutter-line" style="height:' + (visualCounts[i] * actualLineHeight) + 'px">' + (i + lineNoBase) + '</div>';
             }
-            gutter.appendChild(frag);
+            gutter.innerHTML = html_parts.join('');
         }
 
         // 8. 缓存当前状态
         _prevContent = content;
         _prevWidth = contentWidth;
         _prevVisualCounts = visualCounts;
+        _prevBase = lineNoBase;
 
         // 9. 自动调整 gutter 宽度（依据最大行号位数）
         try {
@@ -497,6 +619,10 @@ function GetCurModifyNoteContent(){
 }
 
 function IsLastModify(){
+    if(file_data.mode){
+        let f = CurFile();
+        return f ? (GetCurModifyNoteContent() != f.content) : false;
+    }
     return GetCurModifyNoteContent() != note_data.last_note.content;
 }
 
@@ -530,7 +656,12 @@ async function EditSearchDetail(detail_id, range = null){
 }
 
 function InitSize(){
-    $(".board").css('height', ($(window).height() - 98) + 'px');
+    if(file_data.mode){
+        // 文件模式无搜索区，编辑区更高
+        $(".board").css('height', ($(window).height() - 51) + 'px');
+    }else{
+        $(".board").css('height', ($(window).height() - 98) + 'px');
+    }
     $("#res-detail").css('max-height', ($(window).height() - 120) + 'px');
     // 如果为md编辑器模式则重置md编辑器大小
     if(md_editor_state.shown){
@@ -549,19 +680,25 @@ function TriggerNoteInput(){
 }
 
 let md_editor_state = { shown: false, crepe: null };
+// 计算当前可见导航栏高度（笔记模式与文件模式使用不同导航栏）
+function GetNavTabsHeight(){
+    return (file_data.mode ? $("#file-nav-tabs") : $("#note-nav-tabs")).outerHeight();
+}
 // 计算 md 编辑器高度：board 可用空间 = board高度 - nav-tabs高度
 function GetEditorHeight(){
-    return $("#last-note-board").height() - $(".nav-tabs", "#last-note-board").outerHeight();
+    return $("#last-note-board").height() - GetNavTabsHeight();
 }
+// milkdown.min.js 在 index.html 中同步加载，md模式下可立即使用
 function ShowMdEditor(){
     let mdDiv = $("#md-editor");
     // 显示md编辑器，隐藏 last-note 包裹容器（含行号）
     $(".last-note-wrapper").hide();
     mdDiv.show();
-    // 显示左侧目录，top 对齐 nav-tabs 下方
-    $("#md-toc").css('top', $(".nav-tabs", "#last-note-board").outerHeight() + 'px').show();
+    // 显示左侧目录，top 对齐当前可见导航栏下方
+    $("#md-toc").css('top', GetNavTabsHeight() + 'px').show();
     MdToc.update($("#last-note").val());
     $("#md-mode-btn").addClass('active');
+    $("#file-md-mode-btn").addClass('active');
     // 设置编辑器高度后重建 Crepe（所见即所得），数据源为 #last-note
     mdDiv.css('height', GetEditorHeight() + 'px');
     md_editor_state.shown = true;
@@ -599,6 +736,7 @@ function HideMdEditor(update_last_note = true){
     $("#md-toc").hide();
     md_editor_state.shown = false;
     $("#md-mode-btn").removeClass('active');
+    $("#file-md-mode-btn").removeClass('active');
     // 更新last-note为md编辑器的内容
     if(update_last_note && md_editor_state.crepe){
         try{ $("#last-note").val(md_editor_state.crepe.getMarkdown()); }catch(e){}
@@ -609,6 +747,8 @@ function HideMdEditor(update_last_note = true){
         try{ md_editor_state.crepe.destroy(); }catch(e){}
         md_editor_state.crepe = null;
     }
+    // 切回文本模式后同步行号列（md模式期间的变更需反映到行号）
+    UpdateLastNoteGutter($("#last-note").val());
 }
 function SwitchMdEditor(){
     if(md_editor_state.shown){
@@ -617,7 +757,230 @@ function SwitchMdEditor(){
     }else{
         ShowMdEditor();
     }
+    // 文件模式下记录当前文件的编辑器模式，切换文件时恢复
+    let f = CurFile();
+    if(f){ f.md_shown = md_editor_state.shown; }
 };
+
+// ==================================================== 本地文件编辑模式（只支持md文件） ====================================================
+function CurFile(){
+    return file_data.files[file_data.cur_index] || null;
+}
+
+function GetFileName(path){
+    let idx = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+    return idx >= 0 ? path.substring(idx + 1) : path;
+}
+
+// 同步当前文件编辑中的内容到working缓存
+function SyncCurFileWorking(){
+    let f = CurFile();
+    if(f){ f.working = GetCurModifyNoteContent(); }
+}
+
+// 检查是否存在未保存的本地文件
+function HasUnsavedFiles(){
+    SyncCurFileWorking();
+    return file_data.files.some(f => f.working != f.content);
+}
+
+// 请求后台弹出文件选择对话框
+function OpenLocalFileDialog(){
+    CallSys('open-file-dialog');
+}
+
+function DoOpenFiles(paths){
+    for(let p of paths){
+        CallSys('read-local-file', {path: p});
+    }
+}
+
+// 后台读取完成后添加文件（已打开则直接切换）
+function AddLocalFile(path, content){
+    // 换行统一为\n，避免md编辑器与diff比较时出现CRLF差异
+    content = String(content).replace(/\r\n/g, '\n');
+    let exist = file_data.files.findIndex(f => f.path === path);
+    if(exist >= 0){
+        SwitchToFile(exist);
+        Info("文件已打开，切换到《" + file_data.files[exist].name + "》");
+        return;
+    }
+    let f = {
+        path: path,
+        name: GetFileName(path),
+        content: content,
+        working: content,
+        md_shown: true,    // md文件默认使用md编辑器
+    };
+    file_data.files.push(f);
+    let first_enter = !file_data.mode;
+    if(first_enter){
+        file_data.mode = true;
+        ApplyFileModeUI();
+    }
+    SwitchToFile(file_data.files.length - 1);
+    ShowBoard('#last-note-board');
+    Info("已打开《" + f.name + "》");
+}
+
+// 切换到指定文件（tab点击/新打开文件）
+function SwitchToFile(index){
+    if(index == file_data.cur_index && CurFile()){ return; }
+    // 保存当前文件的编辑状态
+    let cur = CurFile();
+    if(cur){
+        cur.working = GetCurModifyNoteContent();
+        cur.md_shown = md_editor_state.shown;
+    }
+    file_data.cur_index = index;
+    let f = file_data.files[index];
+    $("#last-note").val(f.working);
+    // 文件内容使用等宽字体（文本模式下md源码更易读）
+    $("#last-note").addClass('equal-width-font');
+    UpdateLastNoteGutter(f.working);
+    $("#last-note").scrollTop(0);
+    if(f.md_shown){
+        ShowMdEditor();
+    }else if(md_editor_state.shown){
+        HideMdEditor(false);
+    }
+    $("#last-note").trigger('scroll');
+    TriggerNoteInput();
+    RenderFileTabs();
+    // 窗口标题以当前文件名开头，便于区分多个进程窗口
+    CallSys('set-window-title', f.name + " - Snippet Notes");
+    Info("已切换到《" + f.name + "》");
+}
+
+// 关闭指定文件（tab关闭按钮）
+function CloseFile(index){
+    let f = file_data.files[index];
+    if(!f) return;
+    if(index == file_data.cur_index){
+        f.working = GetCurModifyNoteContent();
+    }
+    let do_close = ()=>{
+        file_data.files.splice(index, 1);
+        if(file_data.files.length == 0){
+            // 所有文件已关闭，自动返回笔记模式
+            DoExitFileMode();
+            return;
+        }
+        if(index == file_data.cur_index){
+            // 关闭的是当前文件，激活相邻文件
+            file_data.cur_index = -1;
+            SwitchToFile(Math.min(index, file_data.files.length - 1));
+        }else{
+            if(index < file_data.cur_index){ file_data.cur_index -= 1; }
+            RenderFileTabs();
+        }
+        Info("已关闭《" + f.name + "》");
+    };
+    if(f.working != f.content){
+        MyModal.Confirm("文件《" + f.name + "》尚未保存，是否保存后关闭 ？", function(){
+            $("#my-confirm").modal('hide');
+            CallSys('save-local-file', {path: f.path, content: f.working});
+            do_close();
+        }, function(){
+            Info("已取消关闭");
+        }, { text:"丢弃变更", fun:function(){
+            $("#my-confirm").modal('hide');
+            do_close();
+        }}, "文件已被修改", 600, 100);
+    }else{
+        do_close();
+    }
+}
+
+// 关闭全部文件后返回笔记模式（关闭文件逻辑内部调用）
+function DoExitFileMode(){
+    let had_md = md_editor_state.shown;
+    file_data.files = [];
+    file_data.cur_index = -1;
+    file_data.mode = false;
+    if(had_md){ HideMdEditor(false); }
+    if(note_data.last_note.name === undefined){
+        // 带文件启动的进程从未加载过笔记，返回笔记模式时才首次加载
+        CallSys('get-last-note');
+    }else{
+        // 恢复笔记编辑界面
+        UpdateLastNote(note_data.last_note);
+        // UpdateLastNote的后续更新分支不会恢复md模式，这里按笔记标题手动恢复
+        if(!md_editor_state.shown && note_data.last_note.name[0] == '#'){
+            ShowMdEditor();
+        }
+    }
+    ApplyFileModeUI();
+    RenderFileTabs();
+    // 恢复默认窗口标题
+    CallSys('set-window-title', "Snippet Notes");
+    Info("已返回笔记模式");
+}
+
+// 保存当前本地文件
+function SaveCurLocalFile(){
+    let f = CurFile();
+    if(!f) return;
+    let content = GetCurModifyNoteContent();
+    if(content == f.content){
+        Info("数据未修改，无需保存");
+        return;
+    }
+    Info('开始保存 ...');
+    CallSys('save-local-file', {path: f.path, content: content});
+}
+
+// 保存所有有修改的本地文件（退出/返回前）
+function SaveAllModifiedFiles(){
+    SyncCurFileWorking();
+    for(let f of file_data.files){
+        if(f.working != f.content){
+            CallSys('save-local-file', {path: f.path, content: f.working});
+        }
+    }
+}
+
+// 渲染文件tabs
+function RenderFileTabs(){
+    // tab插入到第一个静态按钮之前（打开按钮已移至最后）
+    let anchor_li = $("#file-nav-tabs").children("li:not(.file-tab)").first();
+    $(".file-tab").remove();
+    for(let i = 0; i < file_data.files.length; i++){
+        let f = file_data.files[i];
+        let li = $("<li class='file-tab'></li>");
+        if(i == file_data.cur_index){ li.addClass("active"); }
+        let a = $("<a class='top-nav'></a>").attr("title", f.path);
+        a.append($("<span class='file-tab-name'></span>").text(f.name));
+        if(f.working != f.content){
+            a.append($("<span class='file-tab-flag'></span>").text(" *"));
+        }
+        let close_btn = $("<span class='file-tab-close glyphicon glyphicon-remove' title='关闭文件'></span>");
+        close_btn.click(function(e){
+            e.stopPropagation();
+            CloseFile(i);
+        });
+        a.append(close_btn);
+        a.click(function(){
+            SwitchToFile(i);
+        });
+        li.append(a);
+        anchor_li.before(li);
+    }
+}
+
+// 文件模式与笔记模式的界面元素切换
+function ApplyFileModeUI(){
+    if(file_data.mode){
+        $("#note-nav-tabs").hide();
+        $(".note-only").hide();
+        $("#file-nav-tabs").show();
+    }else{
+        $("#note-nav-tabs").show();
+        $(".note-only").show();
+        $("#file-nav-tabs").hide();
+    }
+    InitSize();
+}
 // 拷贝文字到剪贴板，支持多行文本
 function CopyText(text){
     if(navigator.clipboard){
@@ -712,13 +1075,23 @@ $(function(){
         if((event.ctrlKey || event.metaKey)){
             if(event.keyCode == 83){
                 // ctrl + s 保存
-                SaveAndUpdateNote();
+                if(file_data.mode){
+                    SaveCurLocalFile();
+                }else{
+                    SaveAndUpdateNote();
+                }
             }else if(event.keyCode == 70){
-                // ctrl + f 搜索
-                $("#search-input").focus();
+                // ctrl + f 搜索（文件模式下搜索区已隐藏，不处理）
+                if(!file_data.mode){
+                    $("#search-input").focus();
+                }
             }else if(event.keyCode == 72){
                 // ctrl + h 替换
-                $("#note-replace-btn").click();
+                if(file_data.mode){
+                    $("#file-replace-btn").click();
+                }else{
+                    $("#note-replace-btn").click();
+                }
             }
         }
     });
@@ -776,7 +1149,18 @@ $(function(){
 
     $("#last-note").on('input', MyTimer.Debounce(()=>{
         var cur = $("#last-note").val();
-        if(IsLastModify()){
+        // 文本模式下内容变化时同步行号列（md模式下编辑区隐藏，行号不可见无需更新）
+        if(!md_editor_state.shown){
+            UpdateLastNoteGutter(cur);
+        }
+        if(file_data.mode){
+            // 文件模式：同步working缓存并更新tab上的修改标记
+            let f = CurFile();
+            if(f){
+                f.working = cur;
+                RenderFileTabs();
+            }
+        }else if(IsLastModify()){
             $("#edit-flag").addClass('visible');
         }else{
             $("#edit-flag").removeClass('visible');
@@ -850,8 +1234,8 @@ $(function(){
         CallSys("get_history_notes", note_data.last_note.id);
     });
 
-    // 编辑器内容替换
-    $("#note-replace-btn").click(function(){
+    // 编辑器内容查找并替换（笔记与本地文件共用）
+    function ShowReplaceDialog(){
         // 弹框输入替换内容
         // 生成替换的原始值及目标值输入框的html代码
         var replace_html=`
@@ -869,14 +1253,12 @@ $(function(){
             }
             var from_reg = new RegExp($("#noteeditor-replace-from").val(), 'g');
             var to_str = $("#noteeditor-replace-to").val();
-            // 替换编辑框，如果是md模式则替换md编辑器的内容
+            // 替换当前编辑器内容（md模式取md编辑器内容）
+            var new_str = GetCurModifyNoteContent().replace(from_reg, to_str);
+            $("#last-note").val(new_str);
             if(md_editor_state.shown){
-                var new_str = GetCurModifyNoteContent().replace(from_reg, to_str);
-                $("#last-note").val(new_str);
                 // 重建Crepe以反映替换结果
                 ShowMdEditor();
-            }else{
-                $("#last-note").val($("#last-note").val().replace(from_reg, to_str));
             }
             // 替换后触发last note input事件
             TriggerNoteInput();
@@ -885,6 +1267,49 @@ $(function(){
         setTimeout(()=>{
             $("#noteeditor-replace-from").focus();
         }, 500);
+    }
+
+    $("#note-replace-btn").click(function(){
+        ShowReplaceDialog();
+    });
+
+    $("#file-replace-btn").click(function(){
+        if(!CurFile()){
+            MyModal.Alert("没有打开的文件");
+            return;
+        }
+        ShowReplaceDialog();
+    });
+
+    // 打开本地md文件
+    $("#open-file-btn").click(function(){
+        OpenLocalFileDialog();
+    });
+
+    $("#file-open-btn").click(function(){
+        OpenLocalFileDialog();
+    });
+
+    // 新建本地md文件
+    $("#file-new-btn").click(function(){
+        CallSys('new-file-dialog', '');
+    });
+
+    // 本地文件查看变更
+    $("#file-diff-btn").click(function(){
+        let f = CurFile();
+        if(!f) return;
+        let cur = GetCurModifyNoteContent();
+        if(cur == f.content){
+            MyModal.Alert('没有变更');
+            return;
+        }
+        ShowDiff(f.content, cur, '文件变更: ' + f.name);
+    });
+
+    // 本地文件md/文本模式切换
+    $("#file-md-mode-btn").click(function(){
+        SwitchMdEditor();
     });
 
     $("#last-note-title-btn").click(function(){

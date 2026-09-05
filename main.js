@@ -1,11 +1,12 @@
 // 程序入口
 
 const { app, BrowserWindow, Menu, ipcMain, dialog, shell } = require('electron')
+const { spawn } = require('child_process')
 const path = require('path')
 const Notes = require('./notes')
 const MyConf = require('./util/my_conf')
 const MyFile = require('./util/my_file')
-const {MyDate} = require('./util/my_util')
+const {MyDate, MyString} = require('./util/my_util')
 const MyLog = require('./util/my_log')
 
 const is_mac = process.platform === 'darwin'
@@ -49,6 +50,10 @@ function CreateMenu(){
             {
                 label:'保存当前笔记',
                 click: () => { CallWeb('save-note') }
+            },
+            {
+                label:'打开本地md文件',
+                click: () => { CallWeb('trigger-open-file') }
             },
             {
                 label: '打开配置目录',
@@ -132,6 +137,25 @@ async function ChgDbPath(){
 
 G_MAIN_WINDOW = null
 
+// 解析启动参数中的本地md文件路径（支持启动时直接打开文件）
+function ParseStartupMdFiles(){
+    let files = [];
+    // argv[0]为可执行文件自身，跳过；开发模式electron . xx.md时'.'非md会被过滤
+    for (let arg of process.argv.slice(1)) {
+        try{
+            if(!/\.md$/i.test(arg)) continue;
+            let p = path.resolve(arg);
+            if(MyFile.IsExist(p)) files.push(p);
+        }catch(e){ /* 忽略非法参数 */ }
+    }
+    return files;
+}
+
+var G_STARTUP_MD_FILES = ParseStartupMdFiles();
+// 带文件启动的进程只编辑文件，跳过首次自动笔记加载（避免白白读取并渲染大笔记拖慢启动），
+// 关闭所有文件返回笔记模式时会再请求加载
+var G_SKIP_FIRST_NOTE_LOAD = G_STARTUP_MD_FILES.length > 0;
+
 const createWindow = async () => {
     // 设置icon路径，windows与arm版本路径不同
     if(is_windows){
@@ -164,6 +188,15 @@ const createWindow = async () => {
 
     // 先加载页面，让窗口尽快显示
     G_MAIN_WINDOW.loadFile('index.html')
+
+    // 页面加载完成后，打开启动参数中传入的本地md文件
+    // 注意使用独立消息名，与对话框选择的 open-local-files 区分（后者在笔记模式下需新开进程，本消息直接进入文件模式）
+    G_MAIN_WINDOW.webContents.once('did-finish-load', () => {
+        console.log('[PERF] did-finish-load @' + Date.now());
+        if(G_STARTUP_MD_FILES.length > 0){
+            CallWeb('startup-open-local-files', G_STARTUP_MD_FILES);
+        }
+    })
 
     // 并行初始化数据库和配置
     await Init()
@@ -239,7 +272,7 @@ function AlertToWeb(msg){
 // 封装后的前后台通信组件，后续只需要在对方的handle方法中实现逻辑即可，省却preload的修改
 function CallWeb(type, data=null){
     // TODO:remove this
-    console.log(MyDate.Now() + " send to web: " + type + ' ' + JSON.stringify(data).substring(0, 1000))
+    console.log(MyDate.Now() + " send to web: " + type + ' ' + MyString.LogData(data, 1000))
     SendToWeb('send-to-web', {type:type, data:data})
 }
 
@@ -262,6 +295,11 @@ function HandleWebMsg(event, msg){
     try{
         var ProcessWebCall = {
             "get-last-note":async function(v){
+                if(G_SKIP_FIRST_NOTE_LOAD && v == null){
+                    // 带文件启动的进程：跳过首次自动笔记加载，仅在返回笔记模式时按需加载
+                    G_SKIP_FIRST_NOTE_LOAD = false;
+                    return;
+                }
                 let note_id;
                 if(v != null){
                     // 获取指定id的note
@@ -325,6 +363,76 @@ function HandleWebMsg(event, msg){
             "show-default-note":async function(v){
                 // 返回默认笔记ID给前端
                 CallWeb('show-default-note', g_sys_params.default_note);
+            },
+            "open-file-dialog":async function(v){
+                // 弹出文件选择对话框，只支持md文件，可多选
+                const { canceled, filePaths } = await dialog.showOpenDialog(G_MAIN_WINDOW, {
+                    title: '打开本地md文件',
+                    filters: [{ name: 'Markdown', extensions: ['md'] }],
+                    properties: ['openFile', 'multiSelections']
+                });
+                if(!canceled && filePaths && filePaths.length > 0){
+                    CallWeb('open-local-files', filePaths);
+                }
+            },
+            "new-file-dialog":async function(v){
+                // 弹出保存对话框，选择目录并命名新md文件，创建后打开
+                const { canceled, filePath } = await dialog.showSaveDialog(G_MAIN_WINDOW, {
+                    title: '新建md文件',
+                    defaultPath: '新建文档.md',
+                    filters: [{ name: 'Markdown', extensions: ['md'] }]
+                });
+                if(canceled || !filePath) return;
+                try{
+                    // 未带.md后缀时自动补全
+                    let finalPath = filePath.toLowerCase().endsWith('.md') ? filePath : filePath + '.md';
+                    if(!MyFile.IsExist(finalPath)){
+                        // 不存在时创建空文件
+                        MyFile.SyncSave(finalPath, '');
+                        SendInfoToWeb("已创建 " + path.basename(finalPath));
+                    }else{
+                        // 已存在时不覆盖（避免误替换丢内容），直接打开原文件
+                        SendInfoToWeb("文件已存在，直接打开: " + path.basename(finalPath));
+                    }
+                    CallWeb('open-local-files', [finalPath]);
+                }catch(e){
+                    SendErrorToWeb("创建文件失败: " + e.message);
+                }
+            },
+            "open-files-new-process":function(paths){
+                // 以文件路径为启动参数新开一个独立进程（当前为笔记模式时使用，不影响当前笔记界面）
+                try{
+                    // 开发模式execPath为electron.exe，需附带应用目录；打包后execPath即应用exe
+                    let args = app.isPackaged ? paths.slice() : [__dirname].concat(paths);
+                    let child = spawn(process.execPath, args, {detached: true, stdio: 'ignore'});
+                    child.on('error', (e) => { SendErrorToWeb("新开进程失败: " + e.message); });
+                    child.unref();
+                    SendInfoToWeb("已在新进程中打开 " + paths.length + " 个文件");
+                }catch(e){
+                    SendErrorToWeb("新开进程失败: " + e.message);
+                }
+            },
+            "set-window-title":function(v){
+                // 设置窗口标题（文件模式下以文件名开头，便于区分多个进程窗口）
+                if(G_MAIN_WINDOW && v){
+                    G_MAIN_WINDOW.setTitle(v);
+                }
+            },
+            "read-local-file":async function(v){
+                try{
+                    let content = MyFile.SyncRead(v.path);
+                    CallWeb('load-local-file', {path: v.path, content: content});
+                }catch(e){
+                    SendErrorToWeb("读取文件失败 [" + v.path + "]: " + e.message);
+                }
+            },
+            "save-local-file":async function(v){
+                try{
+                    MyFile.SyncSave(v.path, v.content);
+                    CallWeb('local-file-saved', {path: v.path, content: v.content});
+                }catch(e){
+                    SendErrorToWeb("保存文件失败 [" + v.path + "]: " + e.message);
+                }
             },
         }
         ProcessWebCall[msg.type](value);
