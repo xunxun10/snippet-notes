@@ -29,8 +29,17 @@
 #md-editor .milkdown .milkdown-table-block td{
     border: 1px solid #c0c4cc;
 }
-/* 文档开头的 h1 不再留额外上边距 */
-#md-editor .milkdown .ProseMirror > h1:first-child{ margin-top: 0; }
+/* 文档开头的 h1 不再留额外上边距。
+   注意：Crepe 的虚拟光标（cursor feature）会在光标位置插入 widget div（未聚焦时为空
+   div.ProseMirror-widget，聚焦后为 div.prosemirror-virtual-cursor）。光标处于文档开头时，
+   该 widget 会占据 first-child 位置导致 h1:first-child 失效（上边距变大）；一旦选中文字
+   widget 被移除，边距又跳回 0，造成界面抖动。因此需同时覆盖「紧跟 widget 之后的首个 h1」。
+   widget 均为 position:absolute 的空 div，本身不占布局空间，仅影响 :first-child 判定。 */
+#md-editor .milkdown .ProseMirror > h1:first-child,
+#md-editor .milkdown .ProseMirror > div.ProseMirror-widget:first-child + h1,
+#md-editor .milkdown .ProseMirror > div.prosemirror-virtual-cursor:first-child + h1{
+    margin-top: 0;
+}
 #md-editor .milkdown .ProseMirror h1{ margin-top: 16px; }
 #md-editor .milkdown .ProseMirror h2{ margin-top: 14px; }
 #md-editor .milkdown .ProseMirror h3{ margin-top: 12px; }
