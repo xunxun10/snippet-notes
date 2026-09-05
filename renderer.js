@@ -204,7 +204,7 @@ function UpdateLastNote(v){
             setTimeout(InitSize, 1000);
         }else{
             // 文件加载或切换时如果当前标题不以#开头则切换到非md模式
-            if(vditor.shown){
+            if(md_editor_state.shown){
                 // 由于md中的文本有可能被自动格式化，因此不能更新到#last-note
                 HideMdEditor(false);
             }
@@ -212,9 +212,9 @@ function UpdateLastNote(v){
         }
     }else{
         // 软件已打开，只是更新数据时的逻辑
-        // 如果是md模式则更新md编辑器
-        if(vditor.shown){
-            vditor.obj.setValue(v.content);
+        // 如果是md模式则重建编辑器以更新内容（#last-note 已在上面更新为 v.content）
+        if(md_editor_state.shown){
+            ShowMdEditor();
         }
     }
 
@@ -484,11 +484,11 @@ function UpdateDetail(title, nid, content){
 }
 
 function GetCurModifyNoteContent(){
-    if (vditor.shown){
+    if (md_editor_state.shown && md_editor_state.crepe){
         try {
-            return vditor.obj.getValue();
+            return md_editor_state.crepe.getMarkdown();
         } catch (error) {
-            //ShowError("get vditor error, " + error);
+            //ShowError("get md editor error, " + error);
             return $("#last-note").val();
         }
     }else{
@@ -530,16 +530,13 @@ async function EditSearchDetail(detail_id, range = null){
 }
 
 function InitSize(){
-    $(".board").css('height', ($(window).height() - 90) + 'px');
+    $(".board").css('height', ($(window).height() - 98) + 'px');
     $("#res-detail").css('max-height', ($(window).height() - 120) + 'px');
-    // 如果为md编辑器模式则修改md编辑器的大小
-    if(vditor.shown){
-        let pre_text = GetCurModifyNoteContent();
-        vditor.obj = null;
+    // 如果为md编辑器模式则重置md编辑器大小
+    if(md_editor_state.shown){
+        // 当前内容同步到textarea后重建，以应用新的高度
+        $("#last-note").val(GetCurModifyNoteContent());
         ShowMdEditor();
-        setTimeout(()=>{
-            vditor.obj.setValue(pre_text)
-        }, 500);
     }
 }
 
@@ -551,63 +548,70 @@ function TriggerNoteInput(){
     }, 500, 'triggrt-input')();
 }
 
-let vditor = { shown: false, obj: null};
+let md_editor_state = { shown: false, crepe: null };
 // 计算 md 编辑器高度：board 可用空间 = board高度 - nav-tabs高度
 function GetEditorHeight(){
     return $("#last-note-board").height() - $(".nav-tabs", "#last-note-board").outerHeight();
 }
 function ShowMdEditor(){
-    let md_editor = $("#md-editor");
+    let mdDiv = $("#md-editor");
     // 显示md编辑器，隐藏 last-note 包裹容器（含行号）
     $(".last-note-wrapper").hide();
-    md_editor.show();
+    mdDiv.show();
+    // 显示左侧目录，top 对齐 nav-tabs 下方
+    $("#md-toc").css('top', $(".nav-tabs", "#last-note-board").outerHeight() + 'px').show();
+    MdToc.update($("#last-note").val());
     $("#md-mode-btn").addClass('active');
-
-    // 使用 vditor 进行 markdown 编辑，展示在 #md-editor 中 
-    if (vditor.obj){
-        vditor.obj.setValue($("#last-note").val());
-    }else{
-        vditor.obj = new Vditor('md-editor', {
-            "height": GetEditorHeight(),
-            "cache": {
-                "enable": false
-            },
-            "cdn": "./lib/vditor",
-            "value": $("#last-note").val(),
-            "mode": "ir",  // 即时渲染模式（ir），所见即所得模式（wysiwyg）,分屏预览（sv）
-            "toolbar":[
-                // 取消 "upload", "record", "export"
-                "emoji", "headings", "bold", "italic", "strike", "link", "|", "list", "ordered-list", "check", "outdent", "indent", "|", "quote", "line", "code", "inline-code", "insert-before", "insert-after", "|", "table", "|", "undo", "redo", "|", "fullscreen", "edit-mode",
-                {
-                    name: "more",
-                    toolbar: ["both", "code-theme", "content-theme", "outline", "preview", "devtools", "info", "help",],
-                },
-            ],
-            "input": function (value, previewElement) {
-                // 触发last-note input事件
-                $("#last-note").trigger('input');
-            },
-            "outline": {enable:true}, // 默认显示大纲
-        })
+    // 设置编辑器高度后重建 Crepe（所见即所得），数据源为 #last-note
+    mdDiv.css('height', GetEditorHeight() + 'px');
+    md_editor_state.shown = true;
+    if(md_editor_state.crepe){
+        try{ md_editor_state.crepe.destroy(); }catch(e){}
+        md_editor_state.crepe = null;
     }
-    vditor.shown = true;
-    TriggerNoteInput();
+    md_editor_state.crepe = new MilkdownCrepe({
+        root: mdDiv[0],
+        defaultValue: $("#last-note").val(),
+        features: {
+            [MilkdownCrepe.Feature.AI]: false,
+            [MilkdownCrepe.Feature.Toolbar]: true,
+            [MilkdownCrepe.Feature.CodeMirror]: true,
+            [MilkdownCrepe.Feature.Table]: true,
+        },
+    });
+    // 编辑内容变化时同步回 #last-note，驱动 edit-flag 等原有逻辑
+    md_editor_state.crepe.on((listener)=>{
+        listener.markdownUpdated((_, md)=>{
+            $("#last-note").val(md);
+            MdToc.update(md);
+            TriggerNoteInput();
+        });
+    });
+    md_editor_state.crepe.create().then(()=>{
+        TriggerNoteInput();
+    });
 }
 function HideMdEditor(update_last_note = true){
-    let md_editor = $("#md-editor");
+    let mdDiv = $("#md-editor");
     // 隐藏md编辑器，显示 last-note 包裹容器（含行号）
     $(".last-note-wrapper").show();
-    md_editor.hide();
-    vditor.shown = false;
+    mdDiv.hide();
+    $("#md-toc").hide();
+    md_editor_state.shown = false;
     $("#md-mode-btn").removeClass('active');
     // 更新last-note为md编辑器的内容
-    if(update_last_note && vditor.obj){
-        $("#last-note").val(vditor.obj.getValue());
+    if(update_last_note && md_editor_state.crepe){
+        try{ $("#last-note").val(md_editor_state.crepe.getMarkdown()); }catch(e){}
         TriggerNoteInput();
+    }
+    // 释放 Crepe 实例
+    if(md_editor_state.crepe){
+        try{ md_editor_state.crepe.destroy(); }catch(e){}
+        md_editor_state.crepe = null;
     }
 }
 function SwitchMdEditor(){
-    if(vditor.shown){
+    if(md_editor_state.shown){
         // 隐藏md编辑器
         HideMdEditor();
     }else{
@@ -866,10 +870,11 @@ $(function(){
             var from_reg = new RegExp($("#noteeditor-replace-from").val(), 'g');
             var to_str = $("#noteeditor-replace-to").val();
             // 替换编辑框，如果是md模式则替换md编辑器的内容
-            if(vditor.shown){
-                var new_str = vditor.obj.getValue().replace(from_reg, to_str);
-                vditor.obj.setValue(new_str);
-                // $("#last-note").val(new_str);  
+            if(md_editor_state.shown){
+                var new_str = GetCurModifyNoteContent().replace(from_reg, to_str);
+                $("#last-note").val(new_str);
+                // 重建Crepe以反映替换结果
+                ShowMdEditor();
             }else{
                 $("#last-note").val($("#last-note").val().replace(from_reg, to_str));
             }

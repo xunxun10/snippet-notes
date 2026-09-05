@@ -40,6 +40,6 @@ bash pack.sh all
 - electron
 - sqlite3
 - jquery
-- vditor
+- milkdown (Crepe)
 
 其他使用的开源社区产品参见 lib 及 package.json 的引用信息

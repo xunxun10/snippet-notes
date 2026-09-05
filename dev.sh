@@ -31,6 +31,7 @@ function show_help() {
     echo "  new       小版本 +1（如 0.5.2 -> 0.5.3），末位递增"
     echo "  new major 大版本 +1（如 0.5.2 -> 0.6.0），中间位递增、末位归零"
     echo "  chg       将 change_log.txt 修改时间之后的 git 提交记录追加到最新变更"
+    echo "  run       本地运行应用（electron .）进行调试"
     echo "  build     运行当前平台的构建命令"
     echo "  pack      构建并打包为 zip 或分片压缩包"
     echo "  incr      生成增量更新包（基于 dist.files.md5 对比）"
@@ -46,28 +47,31 @@ function _detect_platform() {
     local os=$(uname -s)
 
     if [[ "$os" == CYGWIN* || "$os" == MINGW* || "$os" == MSYS* || "$os" == Windows_NT ]]; then
-        if [ "$arch" == "x86_64" ]; then
+        if [[ "$arch" == "x86_64" || "$arch" == "amd64" ]]; then
             PLATFORM="win"
             BUILD_CMD="npm run dist"
             BUILD_DIR="win-unpacked"
             OUTPUT_NAME="snippet-note-win32-x64"
+            ARCH_TAG="win32-x64"
             LABEL_FILE="dist.files.md5.win.txt"
         else
             Error "不支持的 Windows 架构: $arch"
             exit 1
         fi
     elif [ "$os" == "Linux" ]; then
-        if [ "$arch" == "x86_64" ]; then
+        if [[ "$arch" == "x86_64" || "$arch" == "amd64" ]]; then
             PLATFORM="linux.x86"
             BUILD_CMD="npm run linux.x86"
             BUILD_DIR="linux-unpacked"
             OUTPUT_NAME="snippet-note-linux-x86"
+            ARCH_TAG="linux-x86"
             LABEL_FILE="dist.files.md5.linux-x86.txt"
-        elif [ "$arch" == "aarch64" ]; then
+        elif [[ "$arch" == "aarch64" || "$arch" == "arm64" || "$arch" == "armv8"* ]]; then
             PLATFORM="arm"
             BUILD_CMD="npm run arm"
             BUILD_DIR="linux-arm64-unpacked"
             OUTPUT_NAME="snippet-note-linux-arm64"
+            ARCH_TAG="linux-arm64"
             LABEL_FILE="dist.files.md5.txt"
         else
             Error "不支持的 Linux 架构: $arch"
@@ -113,6 +117,13 @@ function incr_version() {
     _elapsed $t_start
 }
 
+# ===== 运行 =====
+function run(){
+    Info "开始本地运行应用（electron .）..."
+    cd "$S_DIR" && npm start
+    CheckOption "npm start 执行失败"
+}
+
 # ===== 构建 =====
 function build(){
     local t_start=$(date +%s)
@@ -131,15 +142,16 @@ function pack(){
     _detect_platform
     local version=$(grep '"version"' "$PKG" | awk -F '"' '{print $4}')
 
-    # 清理旧包
-    rm -f "$S_DIR/dist/$OUTPUT_NAME"*.zip "$S_DIR/dist/$OUTPUT_NAME"*.z01 "$S_DIR/dist/$OUTPUT_NAME"*.z02 "$S_DIR/dist/$OUTPUT_NAME"*.z03
+    # 清理旧包（兼容全部分片）
+    rm -f "$S_DIR/dist/$OUTPUT_NAME"*.zip "$S_DIR/dist/$OUTPUT_NAME"*.z[0-9][0-9]
 
     # 构建
     Info "开始执行 $BUILD_CMD ..."
     cd "$S_DIR" && $BUILD_CMD
     CheckOption "$BUILD_CMD 执行失败"
 
-    # 打包
+    # 打包：所有平台统一按最大 99MB 分片
+    local split_size="99m"
     local src_dir="$S_DIR/dist/$BUILD_DIR"
     if [ ! -d "$src_dir" ]; then
         Error "构建产物目录 $src_dir 不存在"
@@ -150,9 +162,9 @@ function pack(){
 
     if [ "$PLATFORM" == "arm" ]; then
         # ARM64: 分片 zip 压缩
-        Info "开始将 $BUILD_DIR 打包为 $OUTPUT_NAME-$version.zip（分片）..."
+        Info "开始将 $BUILD_DIR 打包为 $OUTPUT_NAME-$version.zip（按 ${split_size} 分片）..."
         mv "$BUILD_DIR" "$OUTPUT_NAME" &&
-            zip -r -s 40m "$OUTPUT_NAME-$version.zip" "$OUTPUT_NAME" &&
+            zip -rq -s ${split_size} "$OUTPUT_NAME-$version.zip" "$OUTPUT_NAME" &&
             mv "$OUTPUT_NAME" "$BUILD_DIR" &&
             Info "已打包为 $OUTPUT_NAME-$version.zip 及分片文件"
         CheckOption "打包 $OUTPUT_NAME 失败"
@@ -161,12 +173,12 @@ function pack(){
         incr;
         CheckOption "生成增量包失败";
     else
-        # Windows/Linux x86: 整体 zip
-        Info "开始将 $BUILD_DIR 打包为 $OUTPUT_NAME-$version.zip ..."
+        # Windows/Linux x86: 分片 zip 压缩
+        Info "开始将 $BUILD_DIR 打包为 $OUTPUT_NAME-$version.zip（按 ${split_size} 分片）..."
         cp -rfa "$BUILD_DIR" "$OUTPUT_NAME" &&
-            zip -r "$OUTPUT_NAME-$version.zip" "$OUTPUT_NAME" &&
+            zip -rq -s ${split_size} "$OUTPUT_NAME-$version.zip" "$OUTPUT_NAME" &&
             rm -rf "$OUTPUT_NAME" &&
-            Info "已打包为 $OUTPUT_NAME-$version.zip"
+            Info "已打包为 $OUTPUT_NAME-$version.zip 及分片文件"
         CheckOption "打包 $OUTPUT_NAME 失败"
     fi
 
@@ -215,10 +227,10 @@ function incr(){
     local diff_files=$(diff <(echo "$new_md5") <(echo "$old_md5") | grep "^< " | sed -r 's#.*\s\*?./dist#./dist#g')
     Info "文件有变化:\n$diff_files"
 
-    local arch_str=$(echo "$BUILD_DIR" | sed 's/-unpacked$//')
-    local incr_tar_name="snippet-notes.$version.${arch_str}.incr.tar.gz.zip"
+    local incr_tar_name="snippet-notes.$version.${ARCH_TAG}.incr.tar.gz.zip"
 
-    rm -rf "$incr_dir" && mkdir -p "$incr_dir"
+    # 清理所有历史增量包及解包目录（用通配符，兼容版本号/架构变化导致的残留）
+    rm -rf "$incr_dir" dist/snippet-notes.*.incr.tar.gz.zip && mkdir -p "$incr_dir"
     CheckOption "创建增量目录失败"
 
     for file in $diff_files; do
@@ -371,6 +383,9 @@ case "$1" in
         ;;
     chg)
         chg
+        ;;
+    run)
+        run
         ;;
     build)
         build

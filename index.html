@@ -14,7 +14,7 @@
     <script type="text/javascript" src="./lib/contextmenu/jquery.ui.position.js"></script>
     <script type="text/javascript" src="./lib/bootstrap/js/bootstrap.min.js"></script>
 
-    <script type="text/javascript" src="./lib/vditor/dist/index.min.js"></script>
+    <script type="text/javascript" src="./lib/milkdown/milkdown.min.js"></script>
 
     <script type="text/javascript" src="lib/mark/jquery.mark.js"></script>
     <script type="text/javascript" src="lib/diff/diff.js"></script>
@@ -23,13 +23,14 @@
     <script type="text/javascript" src="./src/renderer/note_event.js"></script>
     <script type="text/javascript" src="./src/renderer/diff_panel.js"></script>
     <script type="text/javascript" src="./src/renderer/note_list.js"></script>
-
-    <link href="./lib/vditor/dist/index.css" rel="stylesheet" type="text/css" />
+    <script type="text/javascript" src="./src/renderer/md_toc.js"></script>
 
     <link href="./lib/jquery-ui-1.11.4/jquery-ui.css" rel="stylesheet" type="text/css" />
 
     <link href="./lib/contextmenu/jquery.contextMenu.css" rel="stylesheet" type="text/css">
     <link href="./lib/bootstrap/css/bootstrap.min.css" rel="stylesheet" type="text/css">
+    <link href="./lib/milkdown/milkdown.min.css" rel="stylesheet" type="text/css" />
+    <link href="./res/md-editor.css" rel="stylesheet" type="text/css">
 	<link href="./res/common.css" rel="stylesheet" type="text/css">
   </head>
   <body>
@@ -58,6 +59,7 @@
           <div id="last-note-gutter" class="last-note-gutter" aria-hidden="true"></div>
           <textarea id="last-note" class="snippet-item" spellcheck="false">最新修改数据</textarea>
         </div>
+        <div id="md-toc" class="md-toc" style="display: none;"></div>
         <div id="md-editor" style="display: none;"></div>
     </div>
 

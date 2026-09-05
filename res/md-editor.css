@@ -1,0 +1,184 @@
+/* md 编辑器（Crepe）专用样式：与全局 common.css 隔离，单独维护 */
+
+/* 铺满 board 并支持纵向滚动 */
+#md-editor{
+    overflow-y: auto;
+    overflow-x: hidden;
+    box-sizing: border-box;
+}
+#md-editor .milkdown{
+    min-height: 100%;
+}
+
+/* 细节微调：收紧默认留白、加深表格边框、收敛标题间距 */
+#md-editor .milkdown .ProseMirror{
+    padding: 10px 24px; /* 顶部 10px，左右 24px */
+}
+/* 字号收敛：正文基准 14px，与主界面一致；标题梯度压缩，避免突兀 */
+#md-editor .milkdown{
+    font-size: 14px; /* 覆盖 --crepe-base-font-size 默认 16px */
+}
+#md-editor .milkdown .ProseMirror h1{ font-size: 22px; line-height: 1.3; }
+#md-editor .milkdown .ProseMirror h2{ font-size: 19px; line-height: 1.3; }
+#md-editor .milkdown .ProseMirror h3{ font-size: 17px; line-height: 1.4; }
+#md-editor .milkdown .ProseMirror h4{ font-size: 15px; line-height: 1.4; }
+#md-editor .milkdown .ProseMirror h5{ font-size: 14px; line-height: 1.5; }
+#md-editor .milkdown .ProseMirror h6{ font-size: 13px; line-height: 1.5; }
+/* 表格边框：用固定颜色保证可见（color-mix 在老版 Chromium 可能不支持） */
+#md-editor .milkdown .milkdown-table-block th,
+#md-editor .milkdown .milkdown-table-block td{
+    border: 1px solid #c0c4cc;
+}
+/* 文档开头的 h1 不再留额外上边距 */
+#md-editor .milkdown .ProseMirror > h1:first-child{ margin-top: 0; }
+#md-editor .milkdown .ProseMirror h1{ margin-top: 16px; }
+#md-editor .milkdown .ProseMirror h2{ margin-top: 14px; }
+#md-editor .milkdown .ProseMirror h3{ margin-top: 12px; }
+#md-editor .milkdown .ProseMirror h4{ margin-top: 10px; }
+#md-editor .milkdown .ProseMirror h5,
+#md-editor .milkdown .ProseMirror h6{ margin-top: 8px; }
+
+/* 代码块：去除行号列独立底色，消除凸出色块；收紧上下边距 */
+#md-editor .milkdown .milkdown-code-block{
+    padding: 4px 16px 8px; /* 上/下边距收紧；工具栏保留文档流，仅压缩其占用空间 */
+    border-radius: 6px; /* 代码块圆角 */
+}
+/* 内层（输出容器 / CodeMirror）跟随外层圆角并裁剪，避免直角露边 */
+#md-editor .milkdown .milkdown-code-block .pro-mirror-code-output,
+#md-editor .milkdown .milkdown-code-block .cm-editor{
+    border-radius: inherit;
+    overflow: hidden;
+}
+/* 代码块顶部工具栏：压缩语言按钮的占位高度（原 margin-bottom:8px），工具条仍原位浮现，不再造成布局偏移/左移 */
+#md-editor .milkdown .milkdown-code-block .tools .language-button{
+    margin-bottom: 0;
+}
+#md-editor .milkdown .milkdown-code-block .cm-gutters{
+    background: transparent; /* 让行号列跟随代码块背景，不与代码区产生色差 */
+    border-right: none;
+}
+#md-editor .milkdown .milkdown-code-block .cm-activeLineGutter{
+    background: transparent;
+}
+#md-editor .milkdown .milkdown-code-block .language-picker{
+    padding-top: 4px; /* 原 10px，顶部语言条占位偏大 */
+}
+
+/* md 编辑器激活状态 */
+#md-mode-btn.active{
+    background: rgba(0,0,0,.06);
+    color: #303133;
+    border-color: #c0c4cc !important;
+}
+
+/* 左侧目录（TOC）：absolute 脱离文档流，避免使用 flex */
+#last-note-board{
+    position: relative;
+}
+#md-toc{
+    display: none;
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 200px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    box-sizing: border-box;
+    background: #fff; /* 与编辑区背景一致，避免色块割裂 */
+    border-right: 1px solid #ececec;
+    border-left: 1px solid #ececec;
+    border-bottom: 1px solid #ececec;
+    padding: 8px 0;
+    font-size: 12px;
+    z-index: 5;
+}
+#md-toc .toc-empty{
+    color: #999;
+    text-align: center;
+    padding: 12px 0;
+}
+#md-toc .toc-item{
+    display: block;
+    padding: 3px 12px;
+    color: #333;
+    font-size: 12px;
+    line-height: 18px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+}
+#md-toc .toc-item:hover{
+    background: rgba(0,0,0,.05);
+}
+#md-toc .toc-item.active{
+    color: #409eff;
+    background: #eaf2ff;
+    border-radius: 4px;
+}
+/* 目录滚动条做细：宽度 4px，浅色不抢焦点 */
+#md-toc::-webkit-scrollbar{
+    width: 4px;
+}
+#md-toc::-webkit-scrollbar-thumb{
+    background: #d0d3d9;
+    border-radius: 2px;
+}
+#md-toc::-webkit-scrollbar-track{
+    background: transparent;
+}
+/* 编辑区右移，为目录侧栏让位 */
+#md-editor{
+    margin-left: 200px;
+}
+
+/* ---- 编辑器内整体观感优化 ---- */
+/* 链接：去掉下边框（下划线），用颜色区分；悬停时恢复下划线便于辨识可点 */
+#md-editor .milkdown .ProseMirror a{
+    text-decoration: none;
+    color: #409eff;
+}
+#md-editor .milkdown .ProseMirror a:hover{
+    text-decoration: underline;
+}
+/* 行内代码：默认底色依赖 color-mix（老版 Chromium 不支持会丢失），改固定浅灰底；
+   等宽字体优先 Consolas（默认回退链在 Windows 落到 Courier New） */
+#md-editor .milkdown .ProseMirror code{
+    background: #f0f2f5;
+    padding: 1px 5px;
+    font-family: Consolas, "Courier New", monospace;
+}
+/* 代码块内部的 code 还原，避免套用行内代码样式 */
+#md-editor .milkdown .ProseMirror pre code,
+#md-editor .milkdown .ProseMirror .milkdown-code-block code{
+    background: transparent;
+    padding: 0;
+}
+/* CodeMirror 代码块同步使用 Consolas */
+#md-editor .milkdown .cm-editor{
+    font-family: Consolas, "Courier New", monospace;
+}
+/* 表格表头加浅底，与正文区分 */
+#md-editor .milkdown .milkdown-table-block th{
+    background: #f5f7fa;
+}
+/* 图片自适应宽度、柔化边角，不与内容区冲突 */
+#md-editor .milkdown .ProseMirror img{
+    max-width: 100%;
+    border-radius: 4px;
+}
+/* 水平分割线化为细线，观感更干净 */
+#md-editor .milkdown .ProseMirror hr{
+    border: none;
+    border-top: 1px solid #e4e7ed;
+}
+/* 引用块与有序/无序列表缩进对齐内容区 */
+#md-editor .milkdown .ProseMirror blockquote,
+#md-editor .milkdown .ProseMirror ul,
+#md-editor .milkdown .ProseMirror ol{
+    margin-left: 0;
+}
+/* 引用块：收敛默认 40px 左缩进（左侧竖线分隔保持默认样式） */
+#md-editor .milkdown .ProseMirror blockquote{
+    padding-left: 12px;
+}

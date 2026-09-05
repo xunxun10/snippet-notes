@@ -1,0 +1,81 @@
+# 第三方组件许可声明（THIRD_PARTY NOTICES）
+
+本目录下的 `milkdown.min.js`、`milkdown.min.css` 及字体等产物，由 Milkdown
+(https://github.com/Milkdown/milkdown) **7.22.1** 及其依赖经 esbuild 单次预打包生成。
+Milkdown 本体采用 MIT 许可，许可证全文见同目录 `LICENSE`。
+
+以下是被一起打包进产物的主要开源依赖清单。除特别注明外，均为 **MIT** 许可
+（许可全文见本文件底部“MIT License 文本”）。
+
+| 组件 | 版本 | 许可 |
+| --- | --- | --- |
+| @milkdown/crepe (含 core/ctx/kit/components/transformer/plugin-* 等 milkdown 系列包) | 7.22.1 | MIT |
+| dompurify | 3.4.14 | MPL-2.0 OR Apache-2.0（见下方“dompurify”） |
+| katex | 0.18.5 (及 micromark-extension-math 内嵌 0.16.47) | MIT |
+| prosemirror-view | 1.42.3 | MIT |
+| prosemirror-model | 1.25.11 | MIT |
+| prosemirror-state | 1.4.4 | MIT |
+| prosemirror-transform | 1.12.1 | MIT |
+| prosemirror-schema-list | 1.5.1 | MIT |
+| prosemirror-history | 1.5.0 | MIT |
+| prosemirror-keymap | 1.2.3 | MIT |
+| remark-parse / remark-stringify / remark-gfm | 11.0.0 / 11.0.0 / 4.0.1 | MIT |
+| unified / unist-util-visit / micromark | 11.0.5 / 5.1.0 / 4.0.2 | MIT |
+| @codemirror/* （view/state/commands/language/search/lint/autocomplete/theme-one-dark 等核心与 all 语言包） | 6.x（见锁文件） | MIT |
+| @lezer/* （highlight/lr/javascript/markdown/css/html 等解析库） | 1.x（见锁文件） | MIT |
+| orderedmap / crelt / rope-sequence / estree-walker | 见锁文件 | MIT |
+
+> 完整、精确到每个小包的版本/许可清单见构建目录 `proto/milkdown/package-lock.json`。
+
+## dompurify 许可（MPL-2.0 OR Apache-2.0）
+
+本产物中包含 DOMPurify（3.4.14，https://github.com/cure53/DOMPurify），
+其许可为 **MPL-2.0** 或 **Apache-2.0** 二选一（本项目按 MPL-2.0 条款遵守）。
+MPL-2.0 许可全文：https://www.mozilla.org/en-US/MPL/2.0/
+Apache-2.0 文本见 https://www.apache.org/licenses/LICENSE-2.0 。
+
+## KaTeX 字体许可（单独说明）
+
+产物中随 KaTeX（0.18.5）一起打包的字体文件（本目录下 `KaTeX_*.{ttf,woff,woff2}`，
+共约 1MB / 60 个文件）**单独列明如下，并非简单地归于上面整包 MIT**：
+
+- KaTeX 项目整体的 LICENSE 为 MIT（Copyright (c) 2013-2020 Khan Academy and other contributors，
+  https://github.com/KaTeX/KaTeX/blob/HEAD/LICENSE）。
+- 但字体二进制自身的元数据包含
+  “Copyright (c) 2009-2010 Design Science, Inc.” 及 “Copyright (c) 2014 Khan Academy”。
+  KaTeX 官方存在 “Clarify font license”（issue #339）讨论该字体许可边界，截至打包时仍未完全澄清；
+  部分第三方将 KaTeX 字体视为 SIL Open Font License 1.1，官方 npm 包内则未附带独立的字体许可证文件。
+- 基于以上不确定性，本发布版按“整包 MIT + 上述版权标注”的方式保留这些字体，
+  若后续需要商用发布或进一步降低法律风险，建议改用明确许可（如 STIX Two / OFL）的数学字体，
+  或从产物中剔除数学（LaTeX）特性以不再携带字体。
+
+## 生成方式
+
+在 `proto/milkdown/` 下执行 `npm install && node build.mjs` 重新生成。
+升级版本时请保持本文件与锁文件中版本一致。
+
+## MIT License 文本
+
+对所有标注为 MIT 的组件，许可全文如下：
+
+The MIT License (MIT)
+
+Copyright (c) 各组件各自的版权所有者
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
