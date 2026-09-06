@@ -111,7 +111,6 @@ function incr_version() {
 
     # 在 change_log.txt 末尾追加空行和新版本信息
     local changelog="$S_DIR/change_log.txt"
-    echo "" >> "$changelog"
     echo "$new_ver" >> "$changelog"
     Info "已更新 $changelog"
     _elapsed $t_start
@@ -326,22 +325,22 @@ function push(){
 function chg(){
     local t_start=$(date +%s)
     local changelog="$S_DIR/change_log.txt"
-    local git_dir="$S_DIR"
 
-    # 获取 change_log.txt 的最后修改时间（兼容 Linux/macOS）
-    local mtime
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        mtime=$(stat -f %m "$changelog")
-    else
-        mtime=$(stat -c %Y "$changelog")
+    # 检查上游分支（用于对比本地未推送的提交）
+    local upstream
+    upstream=$(cd "$S_DIR" && git rev-parse --abbrev-ref @{u} 2>/dev/null)
+    if [ -z "$upstream" ]; then
+        Error "没有上游分支，请先设置 upstream"
+        exit 1
     fi
+    Info "对比上游: $upstream"
 
-    # 获取该时间之后的 git 提交记录（排除 merge 提交）
+    # 获取本地未推送的提交记录（排除 merge 提交）
     local new_entries
-    new_entries=$(cd "$git_dir" && git log --since="@$mtime" --format="- %s" --no-merges --reverse 2>/dev/null)
+    new_entries=$(cd "$S_DIR" && git log --format="- %s" --no-merges --reverse @{u}..HEAD)
 
     if [ -z "$new_entries" ]; then
-        Info "没有新的 git 提交记录"
+        Info "没有未推送的 git 提交记录"
         _elapsed $t_start
         return
     fi

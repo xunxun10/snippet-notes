@@ -7,7 +7,8 @@
 let note_data = { last_note_range:null, last_note:{}, first_open:true };
 // 本地文件编辑模式状态（只支持md文件）
 // files: [{path, name, content(磁盘已保存内容), working(编辑中内容), md_shown(该文件的编辑器模式)}]
-let file_data = { mode:false, files:[], cur_index:-1 };
+// readonly: 文件模式下是否只读（默认只读；只读时禁止保存/替换/新建，编辑器不可编辑）
+let file_data = { mode:false, files:[], cur_index:-1, readonly:true };
 // 缓存上一次 gutter 的行文本，用于增量更新
 // 缓存上一次 gutter 的内容（用于快速跳过无变更情况）
 // (moved into function-private closure below)
@@ -608,6 +609,10 @@ function UpdateDetail(title, nid, content){
 }
 
 function GetCurModifyNoteContent(){
+    // 只读文件模式：md编辑器可能已自动格式化内容，直接返回保存的原始内容，避免误报"变更"
+    if(GetFileReadonly()){
+        return $("#last-note").val();
+    }
     if (md_editor_state.shown && md_editor_state.crepe){
         try {
             return md_editor_state.crepe.getMarkdown();
@@ -878,7 +883,8 @@ function ShowMdEditor(restore){
         defaultValue: $("#last-note").val(),
         features: {
             [MilkdownCrepe.Feature.AI]: false,
-            [MilkdownCrepe.Feature.Toolbar]: true,
+            // 只读模式下隐藏工具栏（禁用一切编辑入口）
+            [MilkdownCrepe.Feature.Toolbar]: !GetFileReadonly(),
             [MilkdownCrepe.Feature.CodeMirror]: true,
             [MilkdownCrepe.Feature.Table]: true,
         },
@@ -893,6 +899,17 @@ function ShowMdEditor(restore){
         });
     });
     md_editor_state.crepe.create().then(()=>{
+        // 只读模式下禁用md编辑器编辑（ProseMirror view editable:false）
+        if(GetFileReadonly()){
+            try{ crepe.setReadonly(true); }catch(e){}
+        }
+        // markdownUpdated 在初次创建时不触发，md编辑器加载后可能已自动格式化内容
+        //（如补全末尾换行），文件模式下将实际内容同步回 #last-note 与 working，
+        // 使tab上的变更标记与保存/关闭检查一致；仅当本实例仍为当前编辑器且非只读时同步
+        //（只读模式下不反馈格式化，避免误报变更标记）
+        if(file_data.mode && !GetFileReadonly() && md_editor_state.crepe === crepe){
+            try{ $("#last-note").val(crepe.getMarkdown()); }catch(e){}
+        }
         TriggerNoteInput();
         if(restore && md_editor_state.crepe === crepe){
             // 等待一帧确保布局完成后，恢复到切换前文本编辑器的对应位置
@@ -942,6 +959,56 @@ function SwitchMdEditor(){
 };
 
 // ==================================================== 本地文件编辑模式（只支持md文件） ====================================================
+// 是否处于文件只读状态（仅文件模式下有效，笔记模式始终可编辑）
+function GetFileReadonly(){
+    return file_data.mode ? !!file_data.readonly : false;
+}
+
+// 同步UI反映当前只读状态：textarea只读、切换按钮图标/标题、替换与新建按钮禁用
+function ApplyFileReadonlyUI(){
+    let ro = GetFileReadonly();
+    $("#last-note").prop('readonly', ro);
+    let lock = $("#file-lock-btn");
+    if(ro){
+        lock.addClass('glyphicon-lock').removeClass('glyphicon-pencil').attr('title', '只读模式，点击进入编辑');
+    }else{
+        lock.removeClass('glyphicon-lock').addClass('glyphicon-pencil').attr('title', '编辑模式，点击切换为只读');
+    }
+    $("#file-replace-btn").toggleClass('disabled', ro);
+    $("#file-new-btn").toggleClass('disabled', ro);
+}
+
+// 设置文件只读状态并重建当前编辑器（仅文件模式，未打开文件时忽略）
+function SetFileReadonly(v){
+    file_data.readonly = !!v;
+    if(!file_data.mode) return;
+    ApplyFileReadonlyUI();
+    if(md_editor_state.shown){
+        // md编辑器需重建以套用只读（隐藏工具栏+禁用编辑）
+        let pos = CaptureMdPos();
+        HideMdEditor();
+        ShowMdEditor(pos);
+    }
+}
+
+// 切换文件只读/编辑模式；切换到只读前若有未保存修改则提示先保存或保留
+function ToggleFileReadonly(){
+    if(!file_data.mode) return;
+    let target = !file_data.readonly;
+    if(target && HasUnsavedFiles()){
+        MyModal.Confirm("存在未保存的本地文件修改，是否先保存再切换为只读 ？", function(){
+            SaveAllModifiedFiles();
+            SetFileReadonly(true);
+        }, function(){
+            Info("已取消切换为只读");
+        }, { text:"保留修改并只读", fun:function(){
+            SetFileReadonly(true);
+        }}, "未保存修改", 600, 100);
+        return;
+    }
+    SetFileReadonly(target);
+}
+
 function CurFile(){
     return file_data.files[file_data.cur_index] || null;
 }
@@ -996,7 +1063,9 @@ function AddLocalFile(path, content){
     let first_enter = !file_data.mode;
     if(first_enter){
         file_data.mode = true;
+        file_data.readonly = true;   // 进入文件模式默认只读
         ApplyFileModeUI();
+        ApplyFileReadonlyUI();
     }
     SwitchToFile(file_data.files.length - 1);
     ShowBoard('#last-note-board');
@@ -1078,6 +1147,8 @@ function DoExitFileMode(){
     file_data.files = [];
     file_data.cur_index = -1;
     file_data.mode = false;
+    file_data.readonly = true;   // 复位，下次进入文件模式默认只读
+    $("#last-note").prop('readonly', false);   // 恢复笔记编辑
     if(had_md){ HideMdEditor(false); }
     if(note_data.last_note.name === undefined){
         // 带文件启动的进程从未加载过笔记，返回笔记模式时才首次加载
@@ -1092,13 +1163,18 @@ function DoExitFileMode(){
     }
     ApplyFileModeUI();
     RenderFileTabs();
-    // 恢复默认窗口标题
+    // 恢复默认窗口标题与笔记模式图标
     CallSys('set-window-title', "Snippet Notes");
+    CallSys('set-window-icon', 'note');
     Info("已返回笔记模式");
 }
 
 // 保存当前本地文件
 function SaveCurLocalFile(){
+    if(GetFileReadonly()){
+        Info("当前为只读模式，无法保存");
+        return;
+    }
     let f = CurFile();
     if(!f) return;
     let content = GetCurModifyNoteContent();
@@ -1334,11 +1410,13 @@ $(function(){
             UpdateLastNoteGutter(cur);
         }
         if(file_data.mode){
-            // 文件模式：同步working缓存并更新tab上的修改标记
+            // 文件模式：同步working缓存并更新tab上的修改标记（只读模式不更新，避免误报）
             let f = CurFile();
             if(f){
-                f.working = cur;
-                RenderFileTabs();
+                if(!file_data.readonly){
+                    f.working = cur;
+                    RenderFileTabs();
+                }
             }
         }else if(IsLastModify()){
             $("#edit-flag").addClass('visible');
@@ -1454,6 +1532,10 @@ $(function(){
     });
 
     $("#file-replace-btn").click(function(){
+        if(GetFileReadonly()){
+            Info("当前为只读模式，已禁用查找替换");
+            return;
+        }
         if(!CurFile()){
             MyModal.Alert("没有打开的文件");
             return;
@@ -1470,8 +1552,17 @@ $(function(){
         OpenLocalFileDialog();
     });
 
+    // 本地文件只读/编辑模式切换
+    $("#file-lock-btn").click(function(){
+        ToggleFileReadonly();
+    });
+
     // 新建本地md文件
     $("#file-new-btn").click(function(){
+        if(GetFileReadonly()){
+            Info("当前为只读模式，已禁用新建文件");
+            return;
+        }
         CallSys('new-file-dialog', '');
     });
 

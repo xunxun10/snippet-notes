@@ -246,16 +246,19 @@ async function ChgDbPath(){
 
 G_MAIN_WINDOW = null
 
-const createWindow = async () => {
-    // 设置icon路径，windows与arm版本路径不同
+// 获取窗口图标路径：文件模式(file)与笔记模式(note)使用不同图标，windows与arm版本路径不同
+function GetWindowIconPath(mode){
+    let base = (mode === 'file') ? 'snippet-note-file' : 'snippet-note'
     if(is_windows){
-        var icon_path = path.join(__dirname, 'res/img/snippet-note.ico')
-    }else if(process.platform == 'linux'){
-        // 判断为linux，使用专用图标
-        var icon_path = path.join(__dirname, 'res/img/snippet-note.png')
-    }else{
-        var icon_path = path.join(__dirname, 'res/img/snippet-note.png')
+        return path.join(__dirname, 'res/img/' + base + '.ico')
     }
+    // linux/mac使用png图标
+    return path.join(__dirname, 'res/img/' + base + '.png')
+}
+
+const createWindow = async () => {
+    // 带md文件启动的进程为文件模式，使用文件模式图标（与笔记模式主图标区分）
+    var icon_path = GetWindowIconPath(G_STARTUP_MD_FILES.length > 0 ? 'file' : 'note')
     G_MAIN_WINDOW = new BrowserWindow({
       width: 1200,
       height: 800,
@@ -523,6 +526,12 @@ function HandleWebMsg(event, msg){
                 // 设置窗口标题（文件模式下以文件名开头，便于区分多个进程窗口）
                 if(G_MAIN_WINDOW && v){
                     G_MAIN_WINDOW.setTitle(v);
+                }
+            },
+            "set-window-icon":function(v){
+                // 设置窗口图标（文件模式/笔记模式切换时动态更换，与标题同步；v: 'file'/'note'）
+                if(G_MAIN_WINDOW && v){
+                    G_MAIN_WINDOW.setIcon(GetWindowIconPath(v));
                 }
             },
             "read-local-file":async function(v){
