@@ -62,7 +62,7 @@
             <li><a id="file-replace-btn" class="top-nav edit-panel-btn glyphicon glyphicon-search" title="对当前文件进行查找并替换"></a></li>
             <li><a id="file-new-btn" class="top-nav edit-panel-btn glyphicon glyphicon-file" title="新建md文件"></a></li>
             <li><a id="file-md-mode-btn" class="top-nav edit-panel-btn glyphicon glyphicon-text-width" title="markdown编辑器"></a></li>
-            <li><a id="file-lock-btn" class="top-nav edit-panel-btn glyphicon glyphicon-lock" title="只读模式，点击进入编辑"></a></li>
+            <li><a id="file-lock-btn" class="top-nav edit-panel-btn glyphicon glyphicon-pencil" title="只读模式，点击进入编辑"></a></li>
             <li><a id="file-open-btn" class="top-nav edit-panel-btn glyphicon glyphicon-folder-open" title="打开本地md文件"></a></li>
         </ul>
         <div class="last-note-wrapper">
@@ -88,6 +88,65 @@
     </div>
 
     <div id="bottom-info"></div>
+
+    <!-- MD 配置弹框 -->
+    <div id="md-config-modal" class="modal fade" tabindex="-1" role="dialog" aria-hidden="true">
+        <div class="modal-dialog md-config-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+                    <h4 class="modal-title">MD 配置</h4>
+                </div>
+                <div class="modal-body">
+                    <div class="md-cfg-title">符号</div>
+                    <div class="md-cfg-symbols">
+                        <div class="md-cfg-row">
+                            <label for="md-cfg-bullet">无序列表控制符</label>
+                            <select id="md-cfg-bullet" class="form-control md-cfg-select">
+                                <option value="-">-</option>
+                                <option value="*">*</option>
+                                <option value="+">+</option>
+                            </select>
+                        </div>
+                        <div class="md-cfg-row">
+                            <label for="md-cfg-bullet-ordered">有序列表后缀</label>
+                            <select id="md-cfg-bullet-ordered" class="form-control md-cfg-select">
+                                <option value=".">.</option>
+                                <option value=")">)</option>
+                            </select>
+                        </div>
+                        <div class="md-cfg-row">
+                            <label for="md-cfg-emphasis">强调（斜体）符</label>
+                            <select id="md-cfg-emphasis" class="form-control md-cfg-select">
+                                <option value="*">*</option>
+                                <option value="_">_</option>
+                            </select>
+                        </div>
+                        <div class="md-cfg-row">
+                            <label for="md-cfg-strong">加粗符</label>
+                            <select id="md-cfg-strong" class="form-control md-cfg-select">
+                                <option value="*">*</option>
+                                <option value="_">_</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="md-cfg-title md-cfg-title-gap">功能</div>
+                    <div class="md-cfg-funcs">
+                        <div class="md-cfg-row">
+                            <label class="md-cfg-check-label"><input type="checkbox" id="md-cfg-latex"> 数学公式（Latex）</label>
+                        </div>
+                        <div class="md-cfg-row">
+                            <label class="md-cfg-check-label"><input type="checkbox" id="md-cfg-toc"> 显示目录（TOC）</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-default" data-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" id="md-cfg-save-btn">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- 模态框（Modal） -->
 

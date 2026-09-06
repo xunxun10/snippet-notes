@@ -9,6 +9,20 @@ let note_data = { last_note_range:null, last_note:{}, first_open:true };
 // files: [{path, name, content(磁盘已保存内容), working(编辑中内容), md_shown(该文件的编辑器模式)}]
 // readonly: 文件模式下是否只读（默认只读；只读时禁止保存/替换/新建，编辑器不可编辑）
 let file_data = { mode:false, files:[], cur_index:-1, readonly:true };
+// MD 编辑器配置（持久化到 sys.conf，键名 md_config）
+// bullet: 无序列表控制符；bulletOrdered: 有序列表后缀；emphasis/strong: 强调/加粗符
+// latex: 数学公式开关；toc: 目录显示开关
+let g_md_config = { bullet:'-', bulletOrdered:'.', emphasis:'*', strong:'*', latex:true, toc:true };
+// 同步符号类配置到打包库的运行时全局，md编辑器序列化时读取（见milkdown.min.js补丁）
+function SyncMdCfgGlobal(){
+    globalThis.__MD_CFG = {
+        bullet: g_md_config.bullet,
+        bulletOrdered: g_md_config.bulletOrdered,
+        emphasis: g_md_config.emphasis,
+        strong: g_md_config.strong,
+    };
+}
+SyncMdCfgGlobal();
 // 缓存上一次 gutter 的行文本，用于增量更新
 // 缓存上一次 gutter 的内容（用于快速跳过无变更情况）
 // (moved into function-private closure below)
@@ -136,6 +150,24 @@ if(typeof window.electronAPI != 'undefined'){
             "show-default-note":function(default_note_id){
                 EditSearchDetail(default_note_id);
                 note_data.first_open = true;
+            },
+            "md-config-value":function(v){
+                // 后台返回MD配置，合并到默认值并应用
+                if(v && typeof v == 'object'){
+                    for(let k in g_md_config){
+                        if(v[k] !== undefined){ g_md_config[k] = v[k]; }
+                    }
+                }
+                SyncMdCfgGlobal();
+                ApplyMdConfigUI();
+                // 编辑器可能已按默认配置创建（如Latex开关），需按配置重建以生效
+                if(md_editor_state.shown && md_editor_state.crepe){
+                    ShowMdEditor('self');
+                }
+            },
+            "md-config-open":function(v){
+                // 顶部菜单 Settings > MD 配置 触发
+                ShowMdConfigModal();
             },
         }
         ProcessSysCall[msg.type](value);
@@ -869,6 +901,7 @@ function ShowMdEditor(restore){
     // 显示左侧目录，top 对齐当前可见导航栏下方
     $("#md-toc").css('top', GetNavTabsHeight() + 'px').show();
     MdToc.update($("#last-note").val());
+    if(!g_md_config.toc){ $("#md-toc").hide(); }
     $("#md-mode-btn").addClass('active');
     $("#file-md-mode-btn").addClass('active').attr('title', '切换为文本模式');
     // 设置编辑器高度后重建 Crepe（所见即所得），数据源为 #last-note
@@ -887,6 +920,7 @@ function ShowMdEditor(restore){
             [MilkdownCrepe.Feature.Toolbar]: !GetFileReadonly(),
             [MilkdownCrepe.Feature.CodeMirror]: true,
             [MilkdownCrepe.Feature.Table]: true,
+            [MilkdownCrepe.Feature.Latex]: g_md_config.latex,
         },
     });
     let crepe = md_editor_state.crepe;
@@ -958,22 +992,68 @@ function SwitchMdEditor(){
     if(f){ f.md_shown = md_editor_state.shown; }
 };
 
+// ==================================================== MD 配置 ====================================================
+// 应用配置中即时生效的部分（目录开关），符号类配置在序列化时经 __MD_CFG 生效，Latex 由 ShowMdEditor 重建应用
+function ApplyMdConfigUI(){
+    if(md_editor_state.shown){
+        if(g_md_config.toc){
+            $("#md-toc").show();
+        }else{
+            $("#md-toc").hide();
+        }
+    }
+}
+
+// 打开MD配置弹框，回显当前配置
+function ShowMdConfigModal(){
+    $("#md-cfg-bullet").val(g_md_config.bullet);
+    $("#md-cfg-bullet-ordered").val(g_md_config.bulletOrdered);
+    $("#md-cfg-emphasis").val(g_md_config.emphasis);
+    $("#md-cfg-strong").val(g_md_config.strong);
+    $("#md-cfg-latex").prop('checked', g_md_config.latex);
+    $("#md-cfg-toc").prop('checked', g_md_config.toc);
+    $("#md-config-modal").modal('show');
+}
+
+// 保存MD配置并应用
+function SaveMdConfig(){
+    let old_latex = g_md_config.latex;
+    g_md_config.bullet = $("#md-cfg-bullet").val();
+    g_md_config.bulletOrdered = $("#md-cfg-bullet-ordered").val();
+    g_md_config.emphasis = $("#md-cfg-emphasis").val();
+    g_md_config.strong = $("#md-cfg-strong").val();
+    g_md_config.latex = $("#md-cfg-latex").prop('checked');
+    g_md_config.toc = $("#md-cfg-toc").prop('checked');
+    SyncMdCfgGlobal();
+    CallSys('md-config-set', g_md_config);
+    ApplyMdConfigUI();
+    // Latex 开关变化需重建md编辑器（保持当前位置）
+    if(old_latex != g_md_config.latex && md_editor_state.shown && md_editor_state.crepe){
+        ShowMdEditor('self');
+    }
+    $("#md-config-modal").modal('hide');
+    Info("MD 配置已保存");
+}
+
 // ==================================================== 本地文件编辑模式（只支持md文件） ====================================================
 // 是否处于文件只读状态（仅文件模式下有效，笔记模式始终可编辑）
 function GetFileReadonly(){
     return file_data.mode ? !!file_data.readonly : false;
 }
 
-// 同步UI反映当前只读状态：textarea只读、切换按钮图标/标题、替换与新建按钮禁用
+// 同步UI反映当前只读状态：textarea只读、切换按钮图标/标题、查看变更/替换/新建按钮禁用
 function ApplyFileReadonlyUI(){
     let ro = GetFileReadonly();
     $("#last-note").prop('readonly', ro);
     let lock = $("#file-lock-btn");
     if(ro){
-        lock.addClass('glyphicon-lock').removeClass('glyphicon-pencil').attr('title', '只读模式，点击进入编辑');
+        // 只读状态显示铅笔，表示点击可进入编辑
+        lock.addClass('glyphicon-pencil').removeClass('glyphicon-eye-open').attr('title', '只读模式，点击进入编辑');
     }else{
-        lock.removeClass('glyphicon-lock').addClass('glyphicon-pencil').attr('title', '编辑模式，点击切换为只读');
+        // 编辑状态显示睁眼，表示点击可切换为只读查看
+        lock.removeClass('glyphicon-pencil').addClass('glyphicon-eye-open').attr('title', '编辑模式，点击切换为只读');
     }
+    $("#file-diff-btn").toggleClass('disabled', ro);
     $("#file-replace-btn").toggleClass('disabled', ro);
     $("#file-new-btn").toggleClass('disabled', ro);
 }
@@ -991,17 +1071,23 @@ function SetFileReadonly(v){
     }
 }
 
-// 切换文件只读/编辑模式；切换到只读前若有未保存修改则提示先保存或保留
+// 切换文件只读/编辑模式；切换为只读前若有未保存修改，询问丢弃还是先保存
 function ToggleFileReadonly(){
     if(!file_data.mode) return;
     let target = !file_data.readonly;
     if(target && HasUnsavedFiles()){
-        MyModal.Confirm("存在未保存的本地文件修改，是否先保存再切换为只读 ？", function(){
-            SaveAllModifiedFiles();
+        MyModal.Confirm("存在未保存的本地文件修改，是否丢弃修改并切换为只读 ？", function(){
+            $("#my-confirm").modal('hide');
+            // 确定：丢弃全部未保存修改，恢复磁盘内容
+            let had_md = DiscardAllFileMods();
             SetFileReadonly(true);
+            if(had_md){ ShowMdEditor(); }
+            Info("已丢弃修改并切换为只读");
         }, function(){
             Info("已取消切换为只读");
-        }, { text:"保留修改并只读", fun:function(){
+        }, { text:"保存后切换", fun:function(){
+            $("#my-confirm").modal('hide');
+            SaveAllModifiedFiles();
             SetFileReadonly(true);
         }}, "未保存修改", 600, 100);
         return;
@@ -1196,6 +1282,25 @@ function SaveAllModifiedFiles(){
     }
 }
 
+// 丢弃所有本地文件的未保存修改，恢复磁盘内容显示；返回丢弃前是否处于md模式
+function DiscardAllFileMods(){
+    let had_md = md_editor_state.shown;
+    if(had_md){
+        // 丢弃时不同步编辑器当前内容（#last-note即将恢复为磁盘内容）
+        HideMdEditor(false);
+    }
+    for(let f of file_data.files){
+        f.working = f.content;
+    }
+    let cur = CurFile();
+    if(cur){
+        $("#last-note").val(cur.content);
+        UpdateLastNoteGutter(cur.content);
+    }
+    RenderFileTabs();
+    return had_md;
+}
+
 // 渲染文件tabs
 function RenderFileTabs(){
     // tab插入到第一个静态按钮之前（打开按钮已移至最后）
@@ -1271,6 +1376,8 @@ function CopyText(text){
 $(function(){
     // 从后台获取初始数据，并初始化界面
     CallSys('get-last-note')
+    // 请求MD配置（符号类经__MD_CFG即时生效，Latex/目录在返回后应用）
+    CallSys('md-config-get')
 
     // #search-param-content的checkbox选中时设置toggle背景色
     $("#search-param-content input[type='checkbox']").change(function(){
@@ -1289,6 +1396,10 @@ $(function(){
     // 当不在#search-param-content区域时隐藏
     $("#search-param-content").hover(()=>{}, ()=>{
         $("#search-param-content").hide();
+    });
+
+    $("#md-cfg-save-btn").click(function(){
+        SaveMdConfig();
     });
 
     $("#search-btn").click(()=>{
@@ -1568,6 +1679,10 @@ $(function(){
 
     // 本地文件查看变更
     $("#file-diff-btn").click(function(){
+        if(GetFileReadonly()){
+            Info("当前为只读模式，已禁用查看变更");
+            return;
+        }
         let f = CurFile();
         if(!f) return;
         let cur = GetCurModifyNoteContent();

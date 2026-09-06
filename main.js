@@ -151,14 +151,19 @@ function CreateMenu(){
                 click: () => { CallWeb('save-note') }
             },
             {
-                label:'打开本地md文件',
-                click: () => { CallWeb('trigger-open-file') }
-            },
-            {
                 label: '打开配置目录',
                 click: () => { shell.openPath(g_sys_params.local_data_dir); },
             },
           ]
+        },
+        {
+            label: 'Settings',
+            submenu: [
+                {
+                    label: 'MD 配置',
+                    click: () => { CallWeb('md-config-open') }
+                },
+            ]
         },
         {
             label: 'Compare',
@@ -277,6 +282,21 @@ const createWindow = async () => {
             CallWeb("check-modify-before-close");
             e.preventDefault()
         }
+    })
+
+    // 拦截渲染进程内的外部链接导航，统一用系统默认浏览器打开，避免应用界面被跳转替换
+    G_MAIN_WINDOW.webContents.on('will-navigate', (e, url) => {
+        if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('mailto:')) {
+            e.preventDefault()
+            shell.openExternal(url)
+        }
+    })
+    // target=_blank / window.open 同样改由系统浏览器打开
+    G_MAIN_WINDOW.webContents.setWindowOpenHandler(({ url }) => {
+        if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('mailto:')) {
+            shell.openExternal(url)
+        }
+        return { action: 'deny' }
     })
 
     // 先加载页面，让窗口尽快显示
@@ -549,6 +569,19 @@ function HandleWebMsg(event, msg){
                 }catch(e){
                     SendErrorToWeb("保存文件失败 [" + v.path + "]: " + e.message);
                 }
+            },
+            "md-config-get":function(v){
+                // 返回MD配置（不存在时返回空对象，由前端合并默认值）
+                // ini存储为JSON字符串，读取时反序列化
+                let cfg = g_conf.GetOrSet('md_config', {});
+                if(typeof cfg == 'string'){
+                    try{ cfg = JSON.parse(cfg); }catch(e){ cfg = {}; }
+                }
+                CallWeb('md-config-value', cfg);
+            },
+            "md-config-set":function(v){
+                // 保存MD配置到 sys.conf
+                g_conf.Set('md_config', v);
             },
         }
         ProcessWebCall[msg.type](value);

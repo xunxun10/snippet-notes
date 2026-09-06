@@ -259,6 +259,12 @@ body {
     font-size: 12px !important;
 }
 
+/* 笔记模式导航栏图标按钮与打开文件按钮大小一致（不含带文字的当前笔记按钮） */
+#note-nav-tabs .edit-panel-btn{
+    padding: 6px 8px !important;
+    font-size: 12px !important;
+}
+
 
 /* diff信息区域 */
 #diff-info{
@@ -666,5 +672,59 @@ legend {
 }
 .toast-notification.show {
     opacity: 1;
+}
+
+/* ===== MD 配置弹框 ===== */
+#md-config-modal .modal-dialog{
+    width: 650px;
+    margin-top: 15vh;
+}
+#md-config-modal .modal-body{
+    padding: 8px 15px;
+}
+#md-config-modal .md-cfg-title{
+    font-weight: bold;
+    font-size: 13px;
+    color: #333;
+    padding: 6px 0 4px 0;
+}
+#md-config-modal .md-cfg-title-gap{
+    margin-top: 10px;
+}
+#md-config-modal .md-cfg-row{
+    margin: 6px 0;
+    display: block;
+}
+/* 符号部分两列排布，宽度随弹框自适应 */
+#md-config-modal .md-cfg-symbols .md-cfg-row{
+    display: inline-block;
+    width: 48%;
+    margin: 4px 0;
+}
+#md-config-modal .md-cfg-row label{
+    display: inline-block;
+    min-width: 100px;
+    margin-bottom: 0;
+    font-weight: normal;
+    vertical-align: middle;
+}
+#md-config-modal .md-cfg-select{
+    display: inline-block;
+    width: 90px;
+    height: 28px;
+    padding: 2px 6px;
+    font-size: 13px;
+    vertical-align: middle;
+}
+#md-config-modal .md-cfg-check-label{
+    display: inline-block;
+    width: auto;
+    cursor: pointer;
+    vertical-align: middle;
+    line-height: 1.2;
+}
+#md-config-modal .md-cfg-check-label input{
+    margin: 0 6px 0 0;
+    vertical-align: middle;
 }
 
