@@ -19,7 +19,7 @@ class Notes{
             "create table if not exists notes_history(id INTEGER PRIMARY KEY AUTOINCREMENT, note_id INTEGER, time DATE, name TEXT, content TEXT);",
             "create table if not exists note_params(id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT UNIQUE, value TEXT, description TEXT, create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP, update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"
         ], true)
-        let notes = await Notes.GetAllNotes();
+        await this.db.WaitInit();
     }
 
     static async GetAllNotes(){

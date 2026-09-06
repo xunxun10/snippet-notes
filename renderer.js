@@ -1,6 +1,8 @@
 /// <reference path="./util/my_util.js" />
 
 // 页面渲染逻辑
+// 注意：多进程运行且各文件进程使用独立Chromium档案目录（见main.js槽位方案说明），
+// localStorage/cookie等浏览器存储跨进程不可见，禁止用于保存应用数据（仅可用内存变量）
 
 let note_data = { last_note_range:null, last_note:{}, first_open:true };
 // 本地文件编辑模式状态（只支持md文件）
@@ -896,6 +898,10 @@ function ShowMdEditor(restore){
             // 等待一帧确保布局完成后，恢复到切换前文本编辑器的对应位置
             requestAnimationFrame(function(){ RestoreMdPos(restore); });
         }
+        // 编辑器就绪后补绑目录跟随并刷新高亮：前面的 MdToc.update 执行时 ProseMirror
+        // 尚未创建（BindFollow 找不到滚动容器会直接跳过），且 markdownUpdated 在初次
+        // 创建时不触发，本地文件模式打开首个文件后目录将完全失去跟随
+        MdToc.bind();
     });
 }
 function HideMdEditor(update_last_note = true){
@@ -970,6 +976,7 @@ function DoOpenFiles(paths){
 
 // 后台读取完成后添加文件（已打开则直接切换）
 function AddLocalFile(path, content){
+    console.log('[PERF] renderer-file-ready @' + Math.round(performance.now()) + 'ms: ' + GetFileName(path));
     // 换行统一为\n，避免md编辑器与diff比较时出现CRLF差异
     content = String(content).replace(/\r\n/g, '\n');
     let exist = file_data.files.findIndex(f => f.path === path);

@@ -197,5 +197,7 @@
         },
         show(){ $("#md-toc").show(); },
         hide(){ $("#md-toc").hide(); },
+        // 编辑器创建完成后调用：update 执行时 ProseMirror 尚未挂载，跟随监听可能未绑定
+        bind(){ BindFollow(); },
     };
 })();

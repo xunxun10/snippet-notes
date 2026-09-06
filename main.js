@@ -1,7 +1,10 @@
 // 程序入口
 
+const G_T0 = Date.now();    // 启动耗时打点基准
+
 const { app, BrowserWindow, Menu, ipcMain, dialog, shell } = require('electron')
 const { spawn } = require('child_process')
+const fs = require('fs')
 const path = require('path')
 const Notes = require('./notes')
 const MyConf = require('./util/my_conf')
@@ -19,10 +22,106 @@ const is_windows = process.platform === 'win32';
 var G_CAN_APP_EXIST = false;    // 是否可以退出
 var G_INIT_DONE = false;        // 初始化是否完成
 var G_PENDING_MSGS = [];        // 初始化完成前暂存的消息
+var G_DB_READY = false;         // 笔记数据库是否已初始化（文件进程延迟到需要时再初始化）
 
 var g_conf = null
+
+// 解析启动参数中的本地md文件路径（支持启动时直接打开文件）
+function ParseStartupMdFiles(){
+    let files = [];
+    // argv[0]为可执行文件自身，跳过；开发模式electron . xx.md时'.'非md会被过滤
+    for (let arg of process.argv.slice(1)) {
+        try{
+            if(!/\.md$/i.test(arg)) continue;
+            let p = path.resolve(arg);
+            if(MyFile.IsExist(p)) files.push(p);
+        }catch(e){ /* 忽略非法参数 */ }
+    }
+    return files;
+}
+
+var G_STARTUP_MD_FILES = ParseStartupMdFiles();
+// 带文件启动的进程只编辑文件，跳过首次自动笔记加载（避免白白读取并渲染大笔记拖慢启动），
+// 关闭所有文件返回笔记模式时会再请求加载
+var G_SKIP_FIRST_NOTE_LOAD = G_STARTUP_MD_FILES.length > 0;
+// 带文件启动的进程还跳过笔记数据库初始化（对纯文件编辑无用，且与第一个进程存在锁竞争），
+// 首次需要笔记功能时再按需初始化
+var G_SKIP_DB_INIT = G_STARTUP_MD_FILES.length > 0;
+
+// 共享数据目录（笔记db/配置/日志），所有进程一致；须在改写userData前取值。
+// 注意：主进程新增任何需要持久化的数据都必须放在此目录下（sys.conf/notes.db/日志），
+// 不要用app.getPath('userData')——文件进程的userData指向槽位档案目录，会随槽位变化
+var G_SHARED_USER_DATA = app.getPath('userData');
+// 文件进程的独立Chromium档案目录。两个进程共用同一userData时，Chromium的磁盘缓存
+// （Cache/Code Cache/GPUCache）及LocalStorage等LevelDB的LOCK文件会互相阻塞，
+// 这是第二个进程启动缓慢的主因，故文件进程使用编号槽位隔离档案目录（须在app ready前设置）。
+// 槽位按1、2、3递增分配：第几个文件进程用第几个槽位；槽位目录长期保留不删除，
+// 进程退出后槽位可复用，缓存随之复用使后续启动更快。
+//
+// ★ 本方案的使用限制（新增功能时必须遵守）：
+// 1. 禁止用浏览器存储保存应用数据：localStorage/sessionStorage/IndexedDB/cookie/
+//    Service Worker等均按槽位档案目录隔离，同一进程内可见，但跨进程、跨槽位完全不可见，
+//    且槽位被复用后会读到上一个进程留下的残留数据。需要持久化的数据一律走共享目录
+//    （G_SHARED_USER_DATA下的sys.conf/notes.db）或本地md文件，进程间内存数据不共享。
+//    已核实渲染层及lib下第三方库均未使用浏览器存储，新增依赖时须保持此约定。
+// 2. 渲染进程的崩溃恢复（webContents的crashed/render-process-gone后reload）不受影响，
+//    仍在同一槽位内；但不要假设两个文件进程窗口共享任何Web状态。
+// 3. 槽位目录会各存一份Chromium缓存/LocalStorage的LevelDB等文件，磁盘占用随槽位数
+//    线性增长（本项目以本地文件为主，体积很小）；若要控制占用，可手动清理file-procs目录。
+var G_FILE_PROFILE_DIR = null;
+if(G_STARTUP_MD_FILES.length > 0){
+    let slot = AcquireFileProfileSlot();
+    G_FILE_PROFILE_DIR = path.join(G_SHARED_USER_DATA, 'file-procs', String(slot));
+    app.setPath('userData', G_FILE_PROFILE_DIR);
+    app.setPath('sessionData', G_FILE_PROFILE_DIR);
+    console.log('[PERF] file profile slot ' + slot + ' (pid ' + process.pid + ')');
+}
+
+// 尝试占用槽位：锁不存在、或锁中pid已退出时视为可用，写入自身pid后复核（防并发竞争，后写者胜出）
+function TryLockSlot(base, n){
+    let lock = path.join(base, n + '.lock');
+    try{
+        if(fs.existsSync(lock)){
+            let pid = parseInt(String(fs.readFileSync(lock, 'utf8')).trim(), 10);
+            if(pid && IsPidAlive(pid)) return false;   // 该槽位正被存活进程占用
+        }
+        fs.writeFileSync(lock, String(process.pid));
+        return String(fs.readFileSync(lock, 'utf8')).trim() === String(process.pid);
+    }catch(e){
+        return false;
+    }
+}
+
+// 选择文件进程档案槽位：从1起复用已释放的槽位，全部占用时用最大编号+1
+function AcquireFileProfileSlot(){
+    let base = path.join(G_SHARED_USER_DATA, 'file-procs');
+    try{ fs.mkdirSync(base, {recursive: true}); }catch(e){}
+    // 统计已存在的最大槽位编号（目录或锁文件任一存在即算）
+    let max_slot = 0;
+    try{
+        for(let name of fs.readdirSync(base)){
+            let m = /^(\d+)(?:\.lock)?$/.exec(name);
+            if(m) max_slot = Math.max(max_slot, parseInt(m[1], 10));
+        }
+    }catch(e){}
+    for(let n = 1; n <= max_slot + 1; n++){
+        if(TryLockSlot(base, n)) return n;
+    }
+    return max_slot + 2;    // 极端并发下的兜底，接受与其他进程共用
+}
+
+// 判断pid对应进程是否存活（signal 0仅检测不发送）
+function IsPidAlive(pid){
+    try{
+        process.kill(pid, 0);
+        return true;
+    }catch(e){
+        return e.code === 'EPERM';   // EPERM：进程存在但无权限
+    }
+}
+
 var g_sys_params = {
-    local_data_dir: path.join(app.getPath('userData'), 'snippetnote.local'),
+    local_data_dir: path.join(G_SHARED_USER_DATA, 'snippetnote.local'),
     note_db_file_name: "notes.db",
     config_file_name: 'sys.conf',
     default_note : 1,
@@ -91,6 +190,18 @@ function CreateMenu(){
     ])
 }
 
+// 按需初始化笔记数据库（文件进程首次需要笔记功能时调用，幂等）
+async function EnsureNotesReady(){
+    if(G_DB_READY) return;
+    await Notes.Init(g_sys_params.note_db_file);
+    G_DB_READY = true;
+    // 尝试从数据库获取默认笔记ID
+    let default_note_id = await Notes.GetDefaultNoteId();
+    g_sys_params.default_note = default_note_id ? default_note_id : g_sys_params.default_note;
+    console.log('[PERF] db init +' + (Date.now() - G_T0) + 'ms (lazy)');
+    console.log(MyDate.Now() + " found default note id: " + default_note_id);
+}
+
 async function Init(){
     MyLog.Init(path.join(g_sys_params.local_data_dir, 'logs', 'snipnote'), true);
 
@@ -98,13 +209,10 @@ async function Init(){
     g_sys_params.last_note = g_conf.GetOrSet('last_note', g_sys_params.default_note)
     g_sys_params.note_db_file = g_conf.GetOrSet('note_db_file', path.join(g_sys_params.local_data_dir, g_sys_params.note_db_file_name))
 
-    // 初始化数据库
-    await Notes.Init(g_sys_params.note_db_file);
-    
-    // 尝试从数据库获取默认笔记ID
-    let default_note_id = await Notes.GetDefaultNoteId();
-    g_sys_params.default_note = default_note_id ? default_note_id : g_sys_params.default_note;
-    console.log(MyDate.Now() + " found default note id: " + default_note_id);
+    // 初始化数据库（文件进程跳过，返回笔记模式时由EnsureNotesReady按需初始化）
+    if(!G_SKIP_DB_INIT){
+        await EnsureNotesReady();
+    }
 
     // 标记初始化完成，处理暂存的消息
     G_INIT_DONE = true;
@@ -131,30 +239,12 @@ async function ChgDbPath(){
             }
         }
         g_conf.Set('note_db_file', new_path)
+        G_DB_READY = false;     // 路径已变化，强制下次重新初始化数据库连接
         await Init();
     }
 }
 
 G_MAIN_WINDOW = null
-
-// 解析启动参数中的本地md文件路径（支持启动时直接打开文件）
-function ParseStartupMdFiles(){
-    let files = [];
-    // argv[0]为可执行文件自身，跳过；开发模式electron . xx.md时'.'非md会被过滤
-    for (let arg of process.argv.slice(1)) {
-        try{
-            if(!/\.md$/i.test(arg)) continue;
-            let p = path.resolve(arg);
-            if(MyFile.IsExist(p)) files.push(p);
-        }catch(e){ /* 忽略非法参数 */ }
-    }
-    return files;
-}
-
-var G_STARTUP_MD_FILES = ParseStartupMdFiles();
-// 带文件启动的进程只编辑文件，跳过首次自动笔记加载（避免白白读取并渲染大笔记拖慢启动），
-// 关闭所有文件返回笔记模式时会再请求加载
-var G_SKIP_FIRST_NOTE_LOAD = G_STARTUP_MD_FILES.length > 0;
 
 const createWindow = async () => {
     // 设置icon路径，windows与arm版本路径不同
@@ -187,12 +277,13 @@ const createWindow = async () => {
     })
 
     // 先加载页面，让窗口尽快显示
+    console.log('[PERF] load-file +' + (Date.now() - G_T0) + 'ms');
     G_MAIN_WINDOW.loadFile('index.html')
 
     // 页面加载完成后，打开启动参数中传入的本地md文件
     // 注意使用独立消息名，与对话框选择的 open-local-files 区分（后者在笔记模式下需新开进程，本消息直接进入文件模式）
     G_MAIN_WINDOW.webContents.once('did-finish-load', () => {
-        console.log('[PERF] did-finish-load @' + Date.now());
+        console.log('[PERF] did-finish-load +' + (Date.now() - G_T0) + 'ms');
         if(G_STARTUP_MD_FILES.length > 0){
             CallWeb('startup-open-local-files', G_STARTUP_MD_FILES);
         }
@@ -200,6 +291,7 @@ const createWindow = async () => {
 
     // 并行初始化数据库和配置
     await Init()
+    console.log('[PERF] init-done +' + (Date.now() - G_T0) + 'ms' + (G_SKIP_DB_INIT ? ' (db skipped)' : ''));
 
     // 创建菜单
     Menu.setApplicationMenu(CreateMenu())
@@ -207,8 +299,14 @@ const createWindow = async () => {
 
 // 窗口打开时
 app.whenReady().then(() => {
+    console.log('[PERF] when-ready +' + (Date.now() - G_T0) + 'ms');
 
     createWindow()
+
+    // 文件进程空闲后在后台预热数据库，保证关闭所有文件返回笔记模式时无卡顿
+    if(G_SKIP_DB_INIT){
+        setTimeout(() => { EnsureNotesReady().catch(()=>{}); }, 5000);
+    }
   
     // 兼容苹果,创建或从程序坞唤醒
     app.on('activate', () => {
@@ -300,6 +398,7 @@ function HandleWebMsg(event, msg){
                     G_SKIP_FIRST_NOTE_LOAD = false;
                     return;
                 }
+                await EnsureNotesReady();
                 let note_id;
                 if(v != null){
                     // 获取指定id的note
@@ -313,9 +412,11 @@ function HandleWebMsg(event, msg){
                 CallWeb('modify-last-note', note)
             },
             "search":async function(search_obj){
+                await EnsureNotesReady();
                 CallWeb('show_search_results', await Notes.Search(search_obj))
             },
             "save_note":async function(note){
+                await EnsureNotesReady();
                 let new_note = await Notes.Save(note)
                 SendInfoToWeb("'"+ new_note.name +"'已保存")
                 await UpdateLastAndIDx(note)
@@ -323,10 +424,12 @@ function HandleWebMsg(event, msg){
                 CallWeb('modify-last-note', new_note)
             },
             "get-note-detail":async function(note_id){
+                await EnsureNotesReady();
                 let note = await Notes.ReadNote(note_id);
                 CallWeb('update-note-detail', note)
             },
             "save_and_up_note":async function({note, new_note_id}) {
+                await EnsureNotesReady();
                 let new_note = await Notes.Save(note)
                 SendInfoToWeb("'"+ new_note.name +"'已保存")
                 await UpdateLastAndIDx(note)
@@ -343,18 +446,22 @@ function HandleWebMsg(event, msg){
                 app.quit();
             },
             "get_all_note_names":async function(v){
+                await EnsureNotesReady();
                 let note_names = await Notes.GetAllNoteNames();
                 CallWeb('show-all-note-names', note_names)
             },
             "get_history_notes":async function(v){
+                await EnsureNotesReady();
                 let notes_info = await Notes.GetNoteHistoryInfo(v);
                 CallWeb('show-history-notes', notes_info)
             },
             "get-note-his-diff":async function(v){
+                await EnsureNotesReady();
                 let his_note = await Notes.GetNoteHistory(v);
                 CallWeb('show-note-his-diff', his_note)
             },
             "set-default-note":async function(v){
+                await EnsureNotesReady();
                 let note_id = v.note_id;
                 await Notes.SetDefaultNoteId(note_id);
                 g_sys_params.default_note = note_id;

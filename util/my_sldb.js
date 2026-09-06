@@ -17,11 +17,23 @@ class SqliteDB{
         };
         MyFile.ToucFile(file)
         this.db = new sqlite3.Database(file);
+        // 多进程同时读写同一db时，遇到锁等待而非立即报错
+        this.db.run("PRAGMA busy_timeout = 3000;");
+        // 建表语句异步执行，记录promise供WaitInit等待完成
+        this.init_promises = [];
         if((!exist || always_create) && db_init_sql){
             // 遍历db_init_sql数组执行建表语句
             for(var i = 0; i < db_init_sql.length; ++i){
-                SqliteDB.CreateTable(this.db, db_init_sql[i]);
+                this.init_promises.push(SqliteDB.CreateTable(this.db, db_init_sql[i]));
             }
+        }
+    };
+
+    // 等待构造时提交的建表语句全部完成
+    async WaitInit(){
+        if(this.init_promises.length > 0){
+            await Promise.all(this.init_promises);
+            this.init_promises = [];
         }
     };
 
