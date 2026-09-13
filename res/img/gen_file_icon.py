@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
-# 生成文件模式图标：基于主图标 snippet-note.png 右下角叠加 "MD" 角标
-# 产物规格与现有主图标一致：png 256x256 / ico 单尺寸 256x256
+# 生成文件模式图标：基于主图标 snippet-notes.png 右下角叠加 "MD" 角标
+# 同时由底图生成主图标 snippet-notes.ico；产物规格一致：png 256x256 / ico 单尺寸 256x256
 # 用法: python res/img/gen_file_icon.py   (在仓库根目录执行, 需 Python3 + Pillow)
 
 import os
 from PIL import Image, ImageDraw, ImageFont
 
 # ===================== 可调参数 =====================
-BASE_PNG   = os.path.join(os.path.dirname(__file__), 'snippet-note.png')        # 底图
-OUT_PNG    = os.path.join(os.path.dirname(__file__), 'snippet-note-file.png')   # 输出png
-OUT_ICO    = os.path.join(os.path.dirname(__file__), 'snippet-note-file.ico')   # 输出ico
+BASE_PNG   = os.path.join(os.path.dirname(__file__), 'snippet-notes.png')        # 底图
+OUT_PNG    = os.path.join(os.path.dirname(__file__), 'snippet-notes-file.png')   # 输出png
+OUT_ICO    = os.path.join(os.path.dirname(__file__), 'snippet-notes-file.ico')   # 输出ico
+OUT_ICO_MAIN = os.path.join(os.path.dirname(__file__), 'snippet-notes.ico')      # 主图标ico(由底图直接生成)
 SIZE       = 256               # 输出尺寸(与现有主图标一致)
 BADGE_SIZE = 0.36              # 角标占底图边长比例(调小更精致)
 BADGE_POS  = 'right-bottom'    # 角标位置
@@ -72,9 +73,11 @@ def main():
     # 合成
     out = Image.alpha_composite(base, badge)
     out.save(OUT_PNG)
-    # 单尺寸ico, 与现有 snippet-note.ico 规格一致
+    # 单尺寸ico, 与现有 snippet-notes.ico 规格一致
     out.save(OUT_ICO, sizes=[(SIZE, SIZE)])
-    print('generated:', OUT_PNG, OUT_ICO)
+    # 主图标ico: 由底图直接生成(不带角标), 与主图标png保持一致
+    base.save(OUT_ICO_MAIN, sizes=[(SIZE, SIZE)])
+    print('generated:', OUT_PNG, OUT_ICO, OUT_ICO_MAIN)
 
 if __name__ == '__main__':
     main()

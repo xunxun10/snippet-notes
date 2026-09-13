@@ -430,7 +430,7 @@ var MyModal = class {
      * @param {number} [height=null] - 模态框高度
      * @param {string} [title='SnippetNotes Info'] - 模态框标题
      */
-    static Alert(content, ok_fun = null, width=600, height=100, title='SnippetNotes Info') {
+    static Alert(content, ok_fun = null, width=600, height=null, title='Snippet Notes Info') {
         if($("#my-alert").length < 1){
             let modal = `
             <div class="modal fade" id="my-alert" tabindex="-1" role="dialog" aria-labelledby="my-alert-label" aria-hidden="true">
@@ -557,14 +557,25 @@ var MyModal = class {
         var modal_dialog = $this.find(".modal-dialog");
         var content = $this.find('.modal-body');
         if(!width){ width = 800; };
-        if(!height){ height = 400; };
         modal_dialog.css('width', width);
-        content.css('height', height);
+        // 内容超出时滚动显示，避免内容撑出弹框
+        content.css('overflow-y', 'auto');
+        if(height){
+            content.css({'height': height, 'min-height': ''});
+        }else{
+            // 未指定高度时按内容自适应
+            content.css({'height': '', 'min-height': '100px'});
+        }
         setTimeout(() => {
             // 渲染需要时间，modal_dialog.height()需要延迟计算
-            var m_top = ( $(window).height() - modal_dialog.height() ) * 2 / 5;
-            modal_dialog.css({'margin': m_top + 'px auto'});
-            modal_dialog.css({'max-height': win_height - 100 + 'px', 'max-width': win_width - 100 + 'px'});
+            // 弹框整体最大高度限制，超出部分由内容区域滚动
+            var max_h = win_height - 100;
+            var header_h = $this.find('.modal-header').outerHeight() || 0;
+            var footer_h = $this.find('.modal-footer').outerHeight() || 0;
+            content.css('max-height', Math.max(100, max_h - header_h - footer_h) + 'px');
+            modal_dialog.css({'max-height': max_h + 'px', 'max-width': win_width - 100 + 'px'});
+            var m_top = ( win_height - modal_dialog.height() ) * 2 / 5;
+            modal_dialog.css('margin', m_top + 'px auto');
         }, 200);
     }
 

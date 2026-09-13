@@ -10,6 +10,13 @@
     min-height: 100%;
 }
 
+/* 点击图片时的选中描边高亮 */
+#md-editor .milkdown .ProseMirror img.md-img-selected{
+    outline: 2px solid #1976d2;
+    outline-offset: 2px;
+    border-radius: 2px;
+}
+
 /* 细节微调：收紧默认留白、加深表格边框、收敛标题间距 */
 #md-editor .milkdown .ProseMirror{
     padding: 10px 24px; /* 顶部 10px，左右 24px */
@@ -139,6 +146,29 @@
 /* 编辑区右移，为目录侧栏让位 */
 #md-editor{
     margin-left: 200px;
+}
+
+/* 目录宽度拖拽手柄：absolute 定位在目录右边界（避免使用 flex），left 由 JS 同步 */
+#md-toc-resizer{
+    display: none;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 6px;
+    margin-left: -3px; /* 以目录右边界为轴居中 */
+    cursor: col-resize;
+    z-index: 6;
+}
+#md-toc-resizer:hover{
+    background: rgba(64, 158, 255, .35);
+}
+/* 拖动中：禁用文本选中并高亮手柄，避免选中目录文字 */
+body.toc-resizing{
+    cursor: col-resize;
+    user-select: none;
+}
+body.toc-resizing #md-toc-resizer{
+    background: rgba(64, 158, 255, .5);
 }
 
 /* ---- 编辑器内整体观感优化 ---- */

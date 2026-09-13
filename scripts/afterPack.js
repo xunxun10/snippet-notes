@@ -1,5 +1,5 @@
 // electron-builder afterPack 钩子：Windows打包结束时编译md文件轻量转发程序到产物目录
-// 产物 snippet-note-md.exe 嵌入md专属图标，供用户设置为md文件默认打开方式（见 scripts/launcher.cs）
+// 产物 snippet-notes-md.exe 嵌入md专属图标，供用户设置为md文件默认打开方式（见 scripts/launcher.cs）
 // 其他平台（linux/arm64）打包时本钩子被加载但直接跳过，无平台依赖
 
 const { spawnSync } = require('child_process');
@@ -24,9 +24,9 @@ function AfterPack(context){
     if(context.electronPlatformName !== 'win32') return;
 
     const root = path.join(__dirname, '..');
-    const ico = path.join(root, 'res/img/snippet-note-file.ico');
+    const ico = path.join(root, 'res/img/snippet-notes-file.ico');
     const src = path.join(__dirname, 'launcher.cs');
-    const out = path.join(context.appOutDir, 'snippet-note-md.exe');
+    const out = path.join(context.appOutDir, 'snippet-notes-md.exe');
 
     if(!fs.existsSync(ico)){
         console.warn('[afterPack] 缺少 ' + ico + ' ，跳过launcher编译（请先运行 python res/img/gen_file_icon.py）');

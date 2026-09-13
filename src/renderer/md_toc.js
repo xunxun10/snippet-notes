@@ -66,6 +66,7 @@
             const el = $('<a class="toc-item" href="javascript:void(0)"></a>')
                 .css('padding-left', pad + 'px')
                 .text(label)
+                .attr('title', label) // 标题过长截断时，悬停显示完整标题
                 .on('click', function(){ ScrollToTocItem(item); })
                 .appendTo(box);
             tocEntries.push({ item, el });

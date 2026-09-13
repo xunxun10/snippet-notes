@@ -3,8 +3,7 @@
   <head>
     <meta charset="UTF-8">
     <!-- https://developer.mozilla.org/zh-CN/docs/Web/HTTP/CSP -->
-    <!-- sha256-kLMTdbP3pLQRHzI4AYMXim60x6usVWoGAc2ydjKVFcc= 为vedit的toolbar脚本，不知是否有问题，暂时放开 TODO -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-kLMTdbP3pLQRHzI4AYMXim60x6usVWoGAc2ydjKVFcc='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; ">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http: https:; connect-src 'self' blob: data:; ">
     <title>Snippet Notes</title>
     <script type="text/javascript" src="./lib/jquery/jquery.1.12.js"></script>
 
@@ -24,6 +23,7 @@
     <script type="text/javascript" src="./src/renderer/diff_panel.js"></script>
     <script type="text/javascript" src="./src/renderer/note_list.js"></script>
     <script type="text/javascript" src="./src/renderer/md_toc.js"></script>
+    <script type="text/javascript" src="./src/renderer/md_export.js"></script>
 
     <link href="./lib/jquery-ui-1.11.4/jquery-ui.css" rel="stylesheet" type="text/css" />
 
@@ -33,7 +33,7 @@
     <link href="./res/md-editor.css" rel="stylesheet" type="text/css">
 	<link href="./res/common.css" rel="stylesheet" type="text/css">
   </head>
-  <body>
+  <body spellcheck="false">
     <div class="info-div note-only">
       <input class="search-input" type="text" id="search-input" placeholder="输入搜索内容,可使用空格自行分词,以:开头则表示只搜索当前笔记" spellcheck="false"/>
       <a tabindex="-1" title="设置搜索参数" id="search-param-toggle" class="down-sel-toggle ui-button ui-widget ui-button-icon-only custom-combobox-toggle ui-corner-right" role="button"><span class="ui-button-icon ui-icon ui-icon-triangle-1-s"></span><span class="ui-button-icon-space"> </span>
@@ -53,6 +53,7 @@
             <li class="note-only"><a id="note-his-btn" class="top-nav edit-panel-btn glyphicon glyphicon-calendar" title="查看历史（每天只备份第一次变更）"></a></li>
             <li class="note-only"><a id="note-replace-btn" class="top-nav edit-panel-btn glyphicon glyphicon-search" title="对当前笔记进行查找并替换"></a></li>
             <li class="note-only"><a id="add-note-btn" class="top-nav edit-panel-btn glyphicon glyphicon-plus" title="添加新笔记"></a></li>
+            <li class="note-only"><a id="md-export-btn" class="top-nav edit-panel-btn glyphicon glyphicon-export" title="导出当前文档"></a></li>
             <li class="note-only"><a id="md-mode-btn" class="top-nav edit-panel-btn glyphicon glyphicon-text-width" title="markdown编辑器"></a></li>
             <li><a id="open-file-btn" class="top-nav edit-panel-btn glyphicon glyphicon-folder-open" title="打开本地md文件（进入本地文件编辑模式）"></a></li>
         </ul>
@@ -61,15 +62,22 @@
             <li><a id="file-diff-btn" class="top-nav edit-panel-btn glyphicon glyphicon-transfer" title="查看变更"></a></li>
             <li><a id="file-replace-btn" class="top-nav edit-panel-btn glyphicon glyphicon-search" title="对当前文件进行查找并替换"></a></li>
             <li><a id="file-new-btn" class="top-nav edit-panel-btn glyphicon glyphicon-file" title="新建md文件"></a></li>
+            <li><a id="file-md-export-btn" class="top-nav edit-panel-btn glyphicon glyphicon-export" title="导出当前文档"></a></li>
             <li><a id="file-md-mode-btn" class="top-nav edit-panel-btn glyphicon glyphicon-text-width" title="markdown编辑器"></a></li>
             <li><a id="file-lock-btn" class="top-nav edit-panel-btn glyphicon glyphicon-pencil" title="只读模式，点击进入编辑"></a></li>
             <li><a id="file-open-btn" class="top-nav edit-panel-btn glyphicon glyphicon-folder-open" title="打开本地md文件"></a></li>
         </ul>
+        <div id="md-export-menu" class="md-export-menu" style="display: none;">
+            <a href="javascript:void(0)" data-format="html">导出为 HTML</a>
+            <a href="javascript:void(0)" data-format="pdf">导出为 PDF</a>
+            <a href="javascript:void(0)" data-format="doc">导出为 Word (.doc)</a>
+        </div>
         <div class="last-note-wrapper">
           <div id="last-note-gutter" class="last-note-gutter" aria-hidden="true"></div>
           <textarea id="last-note" class="snippet-item" spellcheck="false">最新修改数据</textarea>
         </div>
         <div id="md-toc" class="md-toc" style="display: none;"></div>
+        <div id="md-toc-resizer" title="拖动调整目录宽度"></div>
         <div id="md-editor" style="display: none;"></div>
     </div>
 
@@ -137,6 +145,22 @@
                         </div>
                         <div class="md-cfg-row">
                             <label class="md-cfg-check-label"><input type="checkbox" id="md-cfg-toc"> 显示目录（TOC）</label>
+                        </div>
+                        <div class="md-cfg-row">
+                            <label class="md-cfg-check-label"><input type="checkbox" id="md-cfg-escape"> 自动转义 _ * 等符号</label>
+                        </div>
+                    </div>
+                    <div class="md-cfg-title md-cfg-title-gap">图片</div>
+                    <div class="md-cfg-funcs">
+                        <div class="md-cfg-row">
+                            <label class="md-cfg-check-label"><input type="radio" name="md-cfg-img-store" id="md-cfg-img-base64" value="base64"> 内嵌 Base64（随文档保存，自包含）</label>
+                        </div>
+                        <div class="md-cfg-row">
+                            <label class="md-cfg-check-label" title="仅本地md文件模式可用"><input type="radio" name="md-cfg-img-store" id="md-cfg-img-local" value="local" checked> 保存为本地图片文件，存放于</label>
+                            <input id="md-cfg-img-dir" class="form-control md-cfg-img-dir-inline" placeholder="images/{mdname}" title="{mdname}为md文件名" />
+                        </div>
+                        <div class="md-cfg-row">
+                            <label class="md-cfg-check-label" title="开启后，MD文档中的 http/https 远程图片可被加载显示。默认关闭以规避风险：①打开含远程图的文档会向第三方服务器发起请求（隐私泄漏/跟踪）；②恶意文档可借图片请求探测内网或本地端口（SSRF式），并可能触发有副作用的接口。脚本层仍受严格CSP白名单保护。本项修改需重启应用才能生效。"><input type="checkbox" id="md-cfg-img-remote"> 允许加载 http/https 远程图片（默认关闭，需重启生效）</label>
                         </div>
                     </div>
                 </div>

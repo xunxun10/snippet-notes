@@ -30,7 +30,7 @@ function show_help() {
     echo "Commands:"
     echo "  new       小版本 +1（如 0.5.2 -> 0.5.3），末位递增"
     echo "  new major 大版本 +1（如 0.5.2 -> 0.6.0），中间位递增、末位归零"
-    echo "  chg       将 change_log.txt 修改时间之后的 git 提交记录追加到最新变更"
+    echo "  chg       将尚未记录的 git 提交追加到 change_log.txt（记录上次执行时间，人工调整后不会重复追加）"
     echo "  run       本地运行应用（electron .）进行调试"
     echo "  build     运行当前平台的构建命令"
     echo "  pack      构建并打包为 zip 或分片压缩包"
@@ -51,9 +51,10 @@ function _detect_platform() {
             PLATFORM="win"
             BUILD_CMD="npm run dist"
             BUILD_DIR="win-unpacked"
-            OUTPUT_NAME="snippet-note-win32-x64"
+            OUTPUT_NAME="snippet-notes-win32-x64"
             ARCH_TAG="win32-x64"
             LABEL_FILE="dist.files.md5.win.txt"
+            ZA="$S_DIR/node_modules/7zip-bin/win/x64/7za.exe"
         else
             Error "不支持的 Windows 架构: $arch"
             exit 1
@@ -63,16 +64,18 @@ function _detect_platform() {
             PLATFORM="linux.x86"
             BUILD_CMD="npm run linux.x86"
             BUILD_DIR="linux-unpacked"
-            OUTPUT_NAME="snippet-note-linux-x86"
+            OUTPUT_NAME="snippet-notes-linux-x86"
             ARCH_TAG="linux-x86"
             LABEL_FILE="dist.files.md5.linux-x86.txt"
+            ZA="$S_DIR/node_modules/7zip-bin/linux/x64/7za"
         elif [[ "$arch" == "aarch64" || "$arch" == "arm64" || "$arch" == "armv8"* ]]; then
             PLATFORM="arm"
             BUILD_CMD="npm run arm"
             BUILD_DIR="linux-arm64-unpacked"
-            OUTPUT_NAME="snippet-note-linux-arm64"
+            OUTPUT_NAME="snippet-notes-linux-arm64"
             ARCH_TAG="linux-arm64"
             LABEL_FILE="dist.files.md5.txt"
+            ZA="$S_DIR/node_modules/7zip-bin/linux/arm64/7za"
         else
             Error "不支持的 Linux 架构: $arch"
             exit 1
@@ -111,6 +114,7 @@ function incr_version() {
 
     # 在 change_log.txt 末尾追加空行和新版本信息
     local changelog="$S_DIR/change_log.txt"
+    echo "" >> "$changelog"
     echo "$new_ver" >> "$changelog"
     Info "已更新 $changelog"
     _elapsed $t_start
@@ -136,13 +140,35 @@ function build(){
 }
 
 # ===== 打包（构建 + 压缩） =====
+
+# 用 7za 按分片大小压缩并做单分卷兜底重命名。
+# $1=zip 名（不含扩展），$2=待压缩目录，$3=分片大小（如 99m）。成功返回 0，失败返回 1。
+function _zip_pack(){
+    local zname=$1
+    local srcdir=$2
+    local split_size=$3
+
+    "$ZA" a -tzip -bso0 -bsp0 "$zname.zip" "$srcdir" -v${split_size}
+    if [ $? -ne 0 ]; then
+        Error "压缩 $zname.zip 失败"
+        return 1
+    fi
+
+    # 兜底：仅一个分卷时重命名为普通 .zip
+    if [ -f "$zname.zip.001" ] && [ ! -f "$zname.zip.002" ]; then
+        mv "$zname.zip.001" "$zname.zip"
+        Info "仅一个分卷，已重命名为 $zname.zip"
+    fi
+    return 0
+}
+
 function pack(){
     local t_start=$(date +%s)
     _detect_platform
     local version=$(grep '"version"' "$PKG" | awk -F '"' '{print $4}')
 
-    # 清理旧包（兼容全部分片）
-    rm -f "$S_DIR/dist/$OUTPUT_NAME"*.zip "$S_DIR/dist/$OUTPUT_NAME"*.z[0-9][0-9]
+    # 清理旧包（兼容 zip 与 7za 两种分卷命名）
+    rm -f "$S_DIR/dist/$OUTPUT_NAME"*.zip "$S_DIR/dist/$OUTPUT_NAME"*.zip.[0-9][0-9][0-9] "$S_DIR/dist/$OUTPUT_NAME"*.z[0-9][0-9]
 
     # 构建
     Info "开始执行 $BUILD_CMD ..."
@@ -157,13 +183,19 @@ function pack(){
         exit 1
     fi
 
+    # 7za 由 electron-builder 依赖（7zip-bin）提供，所有平台统一使用，避免依赖系统 zip 命令
+    if [ ! -f "$ZA" ]; then
+        Error "未找到 7za（$ZA），请先执行 npm install"
+        exit 1
+    fi
+
     cd "$S_DIR/dist"
 
     if [ "$PLATFORM" == "arm" ]; then
         # ARM64: 分片 zip 压缩
         Info "开始将 $BUILD_DIR 打包为 $OUTPUT_NAME-$version.zip（按 ${split_size} 分片）..."
         mv "$BUILD_DIR" "$OUTPUT_NAME" &&
-            zip -rq -s ${split_size} "$OUTPUT_NAME-$version.zip" "$OUTPUT_NAME" &&
+            _zip_pack "$OUTPUT_NAME-$version" "$OUTPUT_NAME" "$split_size" &&
             mv "$OUTPUT_NAME" "$BUILD_DIR" &&
             Info "已打包为 $OUTPUT_NAME-$version.zip 及分片文件"
         CheckOption "打包 $OUTPUT_NAME 失败"
@@ -175,7 +207,7 @@ function pack(){
         # Windows/Linux x86: 分片 zip 压缩
         Info "开始将 $BUILD_DIR 打包为 $OUTPUT_NAME-$version.zip（按 ${split_size} 分片）..."
         cp -rfa "$BUILD_DIR" "$OUTPUT_NAME" &&
-            zip -rq -s ${split_size} "$OUTPUT_NAME-$version.zip" "$OUTPUT_NAME" &&
+            _zip_pack "$OUTPUT_NAME-$version" "$OUTPUT_NAME" "$split_size" &&
             rm -rf "$OUTPUT_NAME" &&
             Info "已打包为 $OUTPUT_NAME-$version.zip 及分片文件"
         CheckOption "打包 $OUTPUT_NAME 失败"
@@ -256,7 +288,7 @@ function clean(){
     _detect_platform
     Info "开始清理 $S_DIR/dist 目录"
     rm -rf "$S_DIR/dist/$BUILD_DIR" "$S_DIR/dist/incr"
-    rm -rf "$S_DIR/dist/$OUTPUT_NAME"*.zip
+    rm -rf "$S_DIR/dist/$OUTPUT_NAME"*.zip "$S_DIR/dist/$OUTPUT_NAME"*.zip.[0-9][0-9][0-9]
     Info "清理完成"
 }
 
@@ -324,6 +356,7 @@ function push(){
 # ===== 更新 changelog =====
 function chg(){
     local t_start=$(date +%s)
+    local t_stamp=$(date '+%Y-%m-%d %H:%M:%S')
     local changelog="$S_DIR/change_log.txt"
 
     # 检查上游分支（用于对比本地未推送的提交）
@@ -335,9 +368,18 @@ function chg(){
     fi
     Info "对比上游: $upstream"
 
-    # 获取本地未推送的提交记录（排除 merge 提交）
+    # 上次执行 chg 的时间（记录在change_log.txt首行标记中，人工调整后旧记录不会被重复追加）
+    local last_time
+    last_time=$(head -1 "$changelog" | sed -n 's/^<!-- chg: \([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\} [0-9]\{2\}:[0-9]\{2\}:[0-9]\{2\}\) -->$/\1/p')
+
+    # 获取范围内的提交记录（排除 merge 提交）：优先从上次执行时间开始；无记录时对比上游
     local new_entries
-    new_entries=$(cd "$S_DIR" && git log --format="- %s" --no-merges --reverse @{u}..HEAD)
+    if [ -n "$last_time" ]; then
+        Info "从上次执行时间 $last_time 开始获取提交"
+        new_entries=$(cd "$S_DIR" && git log --format="- %s" --no-merges --reverse --since="$last_time")
+    else
+        new_entries=$(cd "$S_DIR" && git log --format="- %s" --no-merges --reverse "@{u}..HEAD")
+    fi
 
     if [ -z "$new_entries" ]; then
         Info "没有未推送的 git 提交记录"
@@ -347,6 +389,14 @@ function chg(){
 
     Info "发现新的提交记录："
     echo "$new_entries"
+
+    # 将本次执行时间更新到change_log.txt首行标记（这些提交已纳入处理范围，人工调整后不再重复展示）
+    if head -1 "$changelog" | grep -q '^<!-- chg: '; then
+        sed -i "1c <!-- chg: $t_stamp -->" "$changelog"
+    else
+        sed -i "1i <!-- chg: $t_stamp -->" "$changelog"
+    fi
+    Info "已记录本次执行时间: $t_stamp"
 
     # 过滤掉已存在于 change_log.txt 中的条目，再插入到最新变更后
     local filtered=""
@@ -366,8 +416,10 @@ function chg(){
     Info "新增不重复的条目："
     echo "$filtered"
 
-    # 追加到文件末尾
-    echo "" >> "$changelog"
+    # 追加到文件末尾：文件末尾无换行时补一个，避免新条目前出现多余空行
+    if [ -s "$changelog" ] && [ -n "$(tail -c 1 "$changelog")" ]; then
+        echo "" >> "$changelog"
+    fi
     echo "$filtered" >> "$changelog"
 
     local count=$(echo "$filtered" | wc -l)

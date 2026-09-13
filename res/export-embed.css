@@ -1,0 +1,100 @@
+/* 导出页专用样式：从 md-editor.css 摘取的"视觉性"规则 + 打印分页控制。
+   仅作用于导出HTML中 .md-export 包裹的克隆DOM；不带编辑器布局规则
+   （高度/滚动/边距/#md-toc/拖拽手柄等），保证自包含导出页干净独立。 */
+
+.md-export .milkdown{
+    font-size: 14px; /* 与编辑器一致，覆盖 --crepe-base-font-size 默认 16px */
+}
+.md-export .milkdown .ProseMirror{
+    padding: 10px 24px;
+}
+/* 标题梯度压缩，与编辑器一致 */
+.md-export .milkdown .ProseMirror h1{ font-size: 22px; line-height: 1.3; margin-top: 16px; }
+.md-export .milkdown .ProseMirror h2{ font-size: 19px; line-height: 1.3; margin-top: 14px; }
+.md-export .milkdown .ProseMirror h3{ font-size: 17px; line-height: 1.4; margin-top: 12px; }
+.md-export .milkdown .ProseMirror h4{ font-size: 15px; line-height: 1.4; margin-top: 10px; }
+.md-export .milkdown .ProseMirror h5{ font-size: 14px; line-height: 1.5; margin-top: 8px; }
+.md-export .milkdown .ProseMirror h6{ font-size: 13px; line-height: 1.5; margin-top: 8px; }
+.md-export .milkdown .ProseMirror > h1:first-child{ margin-top: 0; }
+/* 表格边框固定颜色（与编辑器一致，避免 color-mix 兼容问题） */
+.md-export .milkdown .milkdown-table-block th,
+.md-export .milkdown .milkdown-table-block td{
+    border: 1px solid #c0c4cc;
+}
+.md-export .milkdown .milkdown-table-block th{
+    background: #f5f7fa;
+}
+/* 代码块圆角与内层裁剪、边距收紧 */
+.md-export .milkdown .milkdown-code-block{
+    padding: 4px 16px 8px;
+    border-radius: 6px;
+}
+.md-export .milkdown .milkdown-code-block .pro-mirror-code-output,
+.md-export .milkdown .milkdown-code-block .cm-editor{
+    border-radius: inherit;
+    overflow: hidden;
+}
+.md-export .milkdown .milkdown-code-block .tools .language-button{
+    margin-bottom: 0;
+}
+/* 行号列跟代码块底色一致，不产生色差 */
+.md-export .milkdown .milkdown-code-block .cm-gutters{
+    background: transparent;
+    border-right: none;
+}
+.md-export .milkdown .milkdown-code-block .cm-activeLineGutter{
+    background: transparent;
+}
+/* 链接与行内代码 */
+.md-export .milkdown .ProseMirror a{
+    text-decoration: none;
+    color: #409eff;
+}
+.md-export .milkdown .ProseMirror a:hover{
+    text-decoration: underline;
+}
+.md-export .milkdown .ProseMirror code{
+    background: #f0f2f5;
+    padding: 1px 5px;
+    font-family: Consolas, "Courier New", monospace;
+}
+.md-export .milkdown .ProseMirror pre code,
+.md-export .milkdown .ProseMirror .milkdown-code-block code{
+    background: transparent;
+    padding: 0;
+}
+.md-export .milkdown .cm-editor{
+    font-family: Consolas, "Courier New", monospace;
+}
+/* 图片自适应宽度、柔化边角 */
+.md-export .milkdown .ProseMirror img{
+    max-width: 100%;
+    border-radius: 4px;
+}
+/* 分割线细线 */
+.md-export .milkdown .ProseMirror hr{
+    border: none;
+    border-top: 1px solid #e4e7ed;
+}
+/* 引用/列表缩进与内容区对齐 */
+.md-export .milkdown .ProseMirror blockquote,
+.md-export .milkdown .ProseMirror ul,
+.md-export .milkdown .ProseMirror ol{
+    margin-left: 0;
+}
+.md-export .milkdown .ProseMirror blockquote{
+    padding-left: 12px;
+}
+
+/* 打印分页：避免代码块/表格/标题被拦腰切断 */
+@media print{
+    .md-export .milkdown .milkdown-code-block,
+    .md-export .milkdown .milkdown-table-block,
+    .md-export .milkdown h1,
+    .md-export .milkdown h2,
+    .md-export .milkdown h3,
+    .md-export .milkdown h4,
+    .md-export .milkdown .ProseMirror img{
+        break-inside: avoid;
+    }
+}

@@ -11,8 +11,9 @@ let note_data = { last_note_range:null, last_note:{}, first_open:true };
 let file_data = { mode:false, files:[], cur_index:-1, readonly:true };
 // MD 编辑器配置（持久化到 sys.conf，键名 md_config）
 // bullet: 无序列表控制符；bulletOrdered: 有序列表后缀；emphasis/strong: 强调/加粗符
-// latex: 数学公式开关；toc: 目录显示开关
-let g_md_config = { bullet:'-', bulletOrdered:'.', emphasis:'*', strong:'*', latex:true, toc:true };
+// latex: 数学公式开关；toc: 目录显示开关；escape_chars: 是否自动转义 _ * 等符号
+// img_store: 图片存储方式 'base64'|'local'；img_dir_rule: 本地图片存放规则（仅文件模式，{mdname}为md文件名）
+let g_md_config = { bullet:'-', bulletOrdered:'.', emphasis:'*', strong:'*', latex:true, toc:true, escape_chars:false, img_remote:false, img_store:'local', img_dir_rule:'images/{mdname}' };
 // 同步符号类配置到打包库的运行时全局，md编辑器序列化时读取（见milkdown.min.js补丁）
 function SyncMdCfgGlobal(){
     globalThis.__MD_CFG = {
@@ -20,9 +21,173 @@ function SyncMdCfgGlobal(){
         bulletOrdered: g_md_config.bulletOrdered,
         emphasis: g_md_config.emphasis,
         strong: g_md_config.strong,
+        escapeChars: g_md_config.escape_chars,
     };
 }
 SyncMdCfgGlobal();
+
+// ===== 拖入/粘贴图片持久化 =====
+// Crepe 默认把图片转成 blob:file:/// 临时链接（仅当前窗口有效，保存即失效）。
+// 这里在 markdown 输出时把 blob 链接"现实化"为持久链接（base64 或本地相对路径），
+// 只更新底层 #last-note 参与保存；不回写编辑器，避免与 Crepe 产生更新死循环。
+let g_blobCache = new Map();        // blobUrl -> finalUrl
+let g_pendingImgs = new Map();      // blobUrl -> {resolve, reject, dataUrl}
+
+// 提取文件路径中的目录与文件名（renderer 禁用 Node，不用 path 模块）
+function SplitFilePath(fp){
+    let m = /^(.*)[\\/]([^\\/]+)$/.exec(fp || '');
+    if(!m) return { dir: fp || '', mangled:false };
+    let name = m[2].replace(/\.md$/i, '');
+    return { dir: m[1] || '', name: name };
+}
+
+// ===== 编辑器内相对图片路径补全 =====
+// Crepe WYSIWYG 渲染的 <img src="images/..."> 会相对页面(index.html)解析，导致本地 md 文档
+// 里的相对图片加载不到。这里把相对路径按"当前 md 文件所在目录"补全为绝对 file 路径。
+function GetCurMdImageDir(){
+    if(!file_data.mode) return '';
+    let f = CurFile();
+    if(!f || !f.path) return '';
+    return String(f.path).replace(/[\\/]+[^\\/]*$/, '');
+}
+
+// 修复单个 img 的相对 src（绝对/内嵌路径不做处理）
+function FixImageSrc(el){
+    try{
+        let src = el.getAttribute('src');
+        if(!src) return;
+        if(/^(file:|data:|blob:|https?:)/i.test(src)) return;
+        if(src.indexOf('..') === 0) return;      // 越界相对路径不自动补全
+        let dir = GetCurMdImageDir();
+        if(!dir) return;
+        let clean = src.replace(/^[.\/\\]+/, '');
+        el.setAttribute('src', 'file:///' + dir.replace(/\\/g, '/') + '/' + clean);
+    }catch(e){}
+}
+
+// 收集节点自身及后代中的所有 img
+function CollectImgs(node){
+    let out = [];
+    if(node && node.tagName === 'IMG') out.push(node);
+    if(node && node.querySelectorAll){
+        node.querySelectorAll('img').forEach(i => out.push(i));
+    }
+    return out;
+}
+
+// 监听 Crepe 容器的图片渲染，自动补全相对路径
+function InitImageSrcFix(){
+    const root = document.getElementById('md-editor');
+    if(!root || root._imgFixObs) return;
+    let ob = new MutationObserver(muts => {
+        for(let m of muts){
+            if(m.type === 'attributes' && m.attributeName === 'src' && m.target && m.target.tagName === 'IMG'){
+                FixImageSrc(m.target);
+            }else if(m.type === 'childList'){
+                m.addedNodes.forEach(n => CollectImgs(n).forEach(FixImageSrc));
+            }
+        }
+    });
+    ob.observe(root, {childList:true, subtree:true, attributes:true, attributeFilter:['src']});
+    root._imgFixObs = ob;
+}
+
+// 点击图片时选中描边高亮，点击空白处取消选中
+function InitImageSelection(){
+    const root = document.getElementById('md-editor');
+    if(!root || root._imgSelInit) return;
+    root._imgSelInit = true;
+    root.addEventListener('click', function(e){
+        let img = e.target && e.target.tagName === 'IMG' ? e.target : (e.target.closest ? e.target.closest('img') : null);
+        root.querySelectorAll('img.md-img-selected').forEach(i => i.classList.remove('md-img-selected'));
+        if(img && root.contains(img)){
+            img.classList.add('md-img-selected');
+        }
+    });
+}
+
+// 同步把 md 中已缓存的 blob 链接替换为持久链接
+function RealizeCacheOnString(md){
+    if(!md) return md;
+    return md.replace(/!\[([^\]]*)\]\((blob:[^)\s]+)\)/g, (all, alt, url)=>{
+        return g_blobCache.has(url) ? ('![' + alt + '](' + g_blobCache.get(url) + ')') : all;
+    });
+}
+
+// 用最新编辑器 markdown 重新应用缓存，写入 #last-note 并驱动保存/TOC（不回写编辑器）
+function OnImageCacheUpdated(){
+    let md = '';
+    try{ md = (md_editor_state.crepe ? md_editor_state.crepe.getMarkdown() : '') || ''; }catch(e){ md = ''; }
+    if(!md) md = $("#last-note").val();
+    let out = RealizeCacheOnString(md);
+    if(out === $("#last-note").val()) return;
+    $("#last-note").val(out);
+    MdToc.update(out);
+    TriggerNoteInput();
+}
+
+// 把 blob url 读成 dataURL
+function BlobUrlToDataUrl(blobUrl){
+    return fetch(blobUrl).then(r=>{
+        if(!r.ok) throw new Error('读取图片失败');
+        return r.blob();
+    }).then(blob=>new Promise((resolve,reject)=>{
+        let fr = new FileReader();
+        fr.onload = ()=>{ resolve(fr.result); };
+        fr.onerror = ()=>{ reject(new Error('图片转码失败')); };
+        fr.readAsDataURL(blob);
+    }));
+}
+
+// 现实化单个 blob url：返回最终持久链接（写文件失败自动回退 base64）
+function RealizeOneBlob(blobUrl){
+    return BlobUrlToDataUrl(blobUrl).then(dataUrl=>{
+        // 本地文件模式且配置为本地图片时写盘；内嵌笔记（数据库）强制 base64
+        if(file_data.mode && g_md_config.img_store === 'local'){
+            let f = CurFile();
+            let parts = f && f.path ? SplitFilePath(f.path) : null;
+            if(parts && parts.dir){
+                return new Promise((resolve,reject)=>{
+                    g_pendingImgs.set(blobUrl, {resolve:resolve, reject:reject, dataUrl:dataUrl});
+                    CallSys('save-md-image', {token:blobUrl, mdDir:parts.dir, mdName:parts.name, dirRule:g_md_config.img_dir_rule, dataUrl:dataUrl});
+                }).catch(()=>{
+                    // 写盘失败回退 base64
+                    return dataUrl;
+                });
+            }
+        }
+        return dataUrl;
+    });
+}
+
+// markdown 输出拦截入口：现实化新出现的 blob 链接
+function RealizeBlobLinks(md){
+    if(GetFileReadonly()) return md;   // 只读模式不处理
+    let out = RealizeCacheOnString(md);
+    // 收集未处理的 blob 链接并发起异步现实化
+    if(/\]\((blob:[^)\s]+)\)/.test(md)){
+        md.replace(/!\[([^\]]*)\]\((blob:[^)\s]+)\)/g, (all, alt, url)=>{
+            if(!g_blobCache.has(url) && !g_pendingImgs.has(url)){
+                RealizeOneBlob(url).then(final=>{
+                    if(!g_blobCache.has(url)) g_blobCache.set(url, final);
+                    OnImageCacheUpdated();
+                }).catch(()=>{
+                    if(!g_blobCache.has(url)) g_blobCache.set(url, '');
+                    OnImageCacheUpdated();
+                });
+            }
+            return all;
+        });
+    }
+    // 已缓存部分立即同步写回
+    if(out !== md){
+        $("#last-note").val(out);
+        MdToc.update(out);
+        TriggerNoteInput();
+    }
+    return out;
+}
+
 // 缓存上一次 gutter 的行文本，用于增量更新
 // 缓存上一次 gutter 的内容（用于快速跳过无变更情况）
 // (moved into function-private closure below)
@@ -75,14 +240,11 @@ if(typeof window.electronAPI != 'undefined'){
                 if(file_data.mode){
                     // 文件模式：检查所有打开文件的未保存修改
                     if(HasUnsavedFiles()){
-                        MyModal.Confirm("本地文件有未保存修改，是否保存后退出 ？", function(){
-                            SaveAllModifiedFiles();
+                        MyModal.Confirm("是否丢弃修改,直接退出 ？", function(){
                             CallSys("close-app");
                         }, function(){
                             Info("请先保存修改再退出");
-                        }, { text:"丢弃变更", fun:function(){
-                            CallSys("close-app");
-                        }}, "文件内容已被修改", 600, 100);
+                        }, null, "文件内容已被修改", 600, 100);
                     }else{
                         CallSys("close-app");
                     }
@@ -117,13 +279,19 @@ if(typeof window.electronAPI != 'undefined'){
             },
             "load-local-file":function(v){
                 // 后台读取本地文件完成
-                AddLocalFile(v.path, v.content);
+                if(v.reload){
+                    // 外部修改重载：更新已打开文件的缓存
+                    let f = file_data.files.find(x => x.path === v.path);
+                    if(f){ ReloadLocalFile(f, v.content, v.mtime); return; }
+                }
+                AddLocalFile(v.path, v.content, v.mtime);
             },
             "local-file-saved":function(v){
                 // 后台保存本地文件完成
                 let f = file_data.files.find(x => x.path === v.path);
                 if(!f) return;
                 f.content = v.content;
+                f.mtime = v.mtime;   // 保存后的mtime，避免触发外部修改检测
                 if(file_data.files[file_data.cur_index] === f){
                     // 当前文件：working取编辑器实时内容（保存期间可能继续编辑）
                     f.working = GetCurModifyNoteContent();
@@ -132,6 +300,22 @@ if(typeof window.electronAPI != 'undefined'){
                 }
                 Info("已保存《" + f.name + "》");
                 RenderFileTabs();
+            },
+            "file-external-changed":function(v){
+                // 主进程fs.watch监听到文件变化：比较mtime判断是否为外部修改
+                if(!file_data.mode) return;
+                HandleFileMtimeChanged(v.path, v.mtime);
+            },
+            "md-image-saved":function(v){
+                // save-md-image 写盘回调：完成 blob 链接现实化（失败则由 RealizeOneBlob 回退 base64）
+                let p = v && g_pendingImgs.get(v.token);
+                if(!p) return;
+                g_pendingImgs.delete(v.token);
+                if(v && v.relPath && !v.error){
+                    p.resolve(v.relPath.replace(/\\/g, '/'));
+                }else{
+                    p.reject((v && v.error) || '图片保存失败');
+                }
             },
             'show-all-note-names':function(note_names){
                 ShowNoteList(note_names);
@@ -170,7 +354,9 @@ if(typeof window.electronAPI != 'undefined'){
                 ShowMdConfigModal();
             },
         }
-        ProcessSysCall[msg.type](value);
+        if(ProcessSysCall[msg.type]){
+            ProcessSysCall[msg.type](value);
+        }
     })
 }
 
@@ -647,7 +833,9 @@ function GetCurModifyNoteContent(){
     }
     if (md_editor_state.shown && md_editor_state.crepe){
         try {
-            return md_editor_state.crepe.getMarkdown();
+            // 编辑器内图片仍是 blob 临时链接，导出前统一现实化为持久链接（base64/相对路径），
+            // 避免 blob 反向覆盖 #last-note 与已保存内容
+            return RealizeCacheOnString(md_editor_state.crepe.getMarkdown());
         } catch (error) {
             //ShowError("get md editor error, " + error);
             return $("#last-note").val();
@@ -719,6 +907,38 @@ function TriggerNoteInput(){
 }
 
 let md_editor_state = { shown: false, crepe: null };
+
+// ==================================================== MD 目录宽度（支持拖动调整） ====================================================
+let toc_width = 200;        // 当前目录宽度(px)，默认与CSS一致
+const TOC_MIN_WIDTH = 200;  // 目录最小宽度（不低于默认宽度）
+const TOC_MAX_WIDTH = 400;  // 目录最大宽度
+
+// 应用目录宽度：同步目录侧栏、编辑器左移、拖拽手柄位置
+function ApplyTocWidth(w){
+    toc_width = w;
+    $("#md-toc").css('width', w + 'px');
+    $("#md-editor").css('margin-left', w + 'px');
+    $("#md-toc-resizer").css('left', w + 'px');
+}
+
+// 初始化目录宽度拖拽：按住目录右边界手柄左右拖动调整
+function InitTocResizer(){
+    $("#md-toc-resizer").on('mousedown', function(e){
+        e.preventDefault();
+        let start_x = e.clientX;
+        let start_w = toc_width;
+        function OnMove(ev){
+            let w = start_w + (ev.clientX - start_x);
+            ApplyTocWidth(Math.max(TOC_MIN_WIDTH, Math.min(TOC_MAX_WIDTH, w)));
+        }
+        function OnUp(){
+            $(document).off('mousemove', OnMove).off('mouseup', OnUp);
+            $('body').removeClass('toc-resizing');
+        }
+        $(document).on('mousemove', OnMove).on('mouseup', OnUp);
+        $('body').addClass('toc-resizing');
+    });
+}
 // 计算当前可见导航栏高度（笔记模式与文件模式使用不同导航栏）
 function GetNavTabsHeight(){
     return (file_data.mode ? $("#file-nav-tabs") : $("#note-nav-tabs")).outerHeight();
@@ -900,13 +1120,20 @@ function ShowMdEditor(restore){
     mdDiv.show();
     // 显示左侧目录，top 对齐当前可见导航栏下方
     $("#md-toc").css('top', GetNavTabsHeight() + 'px').show();
+    // 同步显示拖拽手柄并按当前宽度定位
+    $("#md-toc-resizer").css('top', GetNavTabsHeight() + 'px').show();
+    ApplyTocWidth(toc_width);
     MdToc.update($("#last-note").val());
-    if(!g_md_config.toc){ $("#md-toc").hide(); }
+    if(!g_md_config.toc){ $("#md-toc").hide(); $("#md-toc-resizer").hide(); }
     $("#md-mode-btn").addClass('active');
     $("#file-md-mode-btn").addClass('active').attr('title', '切换为文本模式');
     // 设置编辑器高度后重建 Crepe（所见即所得），数据源为 #last-note
     mdDiv.css('height', GetEditorHeight() + 'px');
+    // 关闭原生拼写检查，避免英文单词下方出现红色波浪线
+    mdDiv.attr('spellcheck', 'false');
     md_editor_state.shown = true;
+    InitImageSrcFix();   // 编辑器内相对图片路径按当前md文件目录补全
+    InitImageSelection(); // 点击图片选中描边高亮
     if(md_editor_state.crepe){
         try{ md_editor_state.crepe.destroy(); }catch(e){}
         md_editor_state.crepe = null;
@@ -927,12 +1154,17 @@ function ShowMdEditor(restore){
     // 编辑内容变化时同步回 #last-note，驱动 edit-flag 等原有逻辑
     md_editor_state.crepe.on((listener)=>{
         listener.markdownUpdated((_, md)=>{
+            // 把 blob 图片链接现实化为持久链接（base64/本地相对路径）
+            md = RealizeBlobLinks(md);
             $("#last-note").val(md);
             MdToc.update(md);
             TriggerNoteInput();
         });
     });
     md_editor_state.crepe.create().then(()=>{
+        // 直接禁用编辑区自身的原生拼写检查（继承自 mdDiv，双重保险）
+        const pmEl = mdDiv[0].querySelector('.ProseMirror');
+        if(pmEl){ pmEl.setAttribute('spellcheck', 'false'); }
         // 只读模式下禁用md编辑器编辑（ProseMirror view editable:false）
         if(GetFileReadonly()){
             try{ crepe.setReadonly(true); }catch(e){}
@@ -942,7 +1174,7 @@ function ShowMdEditor(restore){
         // 使tab上的变更标记与保存/关闭检查一致；仅当本实例仍为当前编辑器且非只读时同步
         //（只读模式下不反馈格式化，避免误报变更标记）
         if(file_data.mode && !GetFileReadonly() && md_editor_state.crepe === crepe){
-            try{ $("#last-note").val(crepe.getMarkdown()); }catch(e){}
+            try{ $("#last-note").val(RealizeCacheOnString(crepe.getMarkdown())); }catch(e){}
         }
         TriggerNoteInput();
         if(restore && md_editor_state.crepe === crepe){
@@ -961,12 +1193,13 @@ function HideMdEditor(update_last_note = true){
     $(".last-note-wrapper").show();
     mdDiv.hide();
     $("#md-toc").hide();
+    $("#md-toc-resizer").hide();
     md_editor_state.shown = false;
     $("#md-mode-btn").removeClass('active');
     $("#file-md-mode-btn").removeClass('active').attr('title', 'markdown编辑器');
     // 更新last-note为md编辑器的内容
     if(update_last_note && md_editor_state.crepe){
-        try{ $("#last-note").val(md_editor_state.crepe.getMarkdown()); }catch(e){}
+        try{ $("#last-note").val(RealizeCacheOnString(md_editor_state.crepe.getMarkdown())); }catch(e){}
         TriggerNoteInput();
     }
     // 释放 Crepe 实例
@@ -998,8 +1231,10 @@ function ApplyMdConfigUI(){
     if(md_editor_state.shown){
         if(g_md_config.toc){
             $("#md-toc").show();
+            $("#md-toc-resizer").show();
         }else{
             $("#md-toc").hide();
+            $("#md-toc-resizer").hide();
         }
     }
 }
@@ -1012,18 +1247,40 @@ function ShowMdConfigModal(){
     $("#md-cfg-strong").val(g_md_config.strong);
     $("#md-cfg-latex").prop('checked', g_md_config.latex);
     $("#md-cfg-toc").prop('checked', g_md_config.toc);
+    $("#md-cfg-escape").prop('checked', g_md_config.escape_chars);
+    // 图片存储方式
+    if(g_md_config.img_store === 'local'){
+        $("#md-cfg-img-local").prop('checked', true);
+    }else{
+        $("#md-cfg-img-base64").prop('checked', true);
+    }
+    $("#md-cfg-img-dir").val(g_md_config.img_dir_rule || 'images/{mdname}');
+    $("#md-cfg-img-remote").prop('checked', !!g_md_config.img_remote);
+    $('input[name="md-cfg-img-store"]').off('change', SynchImageDirVis).on('change', SynchImageDirVis);
+    SynchImageDirVis();
     $("#md-config-modal").modal('show');
+}
+
+// 根据图片存储方式选择，显示/隐藏"存放规则"输入框
+function SynchImageDirVis(){
+    let local = $("#md-cfg-img-local").prop('checked');
+    $("#md-cfg-img-dir").toggle(!!local);
 }
 
 // 保存MD配置并应用
 function SaveMdConfig(){
     let old_latex = g_md_config.latex;
+    let old_img_remote = g_md_config.img_remote;
     g_md_config.bullet = $("#md-cfg-bullet").val();
     g_md_config.bulletOrdered = $("#md-cfg-bullet-ordered").val();
     g_md_config.emphasis = $("#md-cfg-emphasis").val();
     g_md_config.strong = $("#md-cfg-strong").val();
     g_md_config.latex = $("#md-cfg-latex").prop('checked');
     g_md_config.toc = $("#md-cfg-toc").prop('checked');
+    g_md_config.escape_chars = $("#md-cfg-escape").prop('checked');
+    g_md_config.img_store = $("#md-cfg-img-local").prop('checked') ? 'local' : 'base64';
+    g_md_config.img_dir_rule = ($("#md-cfg-img-dir").val() || '').trim() || 'images/{mdname}';
+    g_md_config.img_remote = $("#md-cfg-img-remote").prop('checked');
     SyncMdCfgGlobal();
     CallSys('md-config-set', g_md_config);
     ApplyMdConfigUI();
@@ -1033,6 +1290,9 @@ function SaveMdConfig(){
     }
     $("#md-config-modal").modal('hide');
     Info("MD 配置已保存");
+    if(old_img_remote !== g_md_config.img_remote){
+        Info("远程图片开关已变更，重启应用后生效");
+    }
 }
 
 // ==================================================== 本地文件编辑模式（只支持md文件） ====================================================
@@ -1128,7 +1388,7 @@ function DoOpenFiles(paths){
 }
 
 // 后台读取完成后添加文件（已打开则直接切换）
-function AddLocalFile(path, content){
+function AddLocalFile(path, content, mtime){
     console.log('[PERF] renderer-file-ready @' + Math.round(performance.now()) + 'ms: ' + GetFileName(path));
     // 换行统一为\n，避免md编辑器与diff比较时出现CRLF差异
     content = String(content).replace(/\r\n/g, '\n');
@@ -1143,9 +1403,12 @@ function AddLocalFile(path, content){
         name: GetFileName(path),
         content: content,
         working: content,
+        mtime: mtime,        // 磁盘文件的修改时间，用于检测外部修改
+        exists: true,
         md_shown: true,    // md文件默认使用md编辑器
     };
     file_data.files.push(f);
+    CallSys('watch-file', {path: path});   // 注册实时监听，检测外部修改
     let first_enter = !file_data.mode;
     if(first_enter){
         file_data.mode = true;
@@ -1156,6 +1419,62 @@ function AddLocalFile(path, content){
     SwitchToFile(file_data.files.length - 1);
     ShowBoard('#last-note-board');
     Info("已打开《" + f.name + "》");
+}
+
+// 外部修改重载：用磁盘最新内容替换已打开文件的缓存并刷新界面
+function ReloadLocalFile(f, content, mtime){
+    content = String(content).replace(/\r\n/g, '\n');
+    f.content = content;
+    f.working = content;
+    f.mtime = mtime;
+    f.exists = true;
+    if(file_data.files[file_data.cur_index] === f){
+        // 当前文件：同步编辑器（内容已变化，不恢复位置）
+        $("#last-note").val(content);
+        UpdateLastNoteGutter(content);
+        if(md_editor_state.shown){
+            ShowMdEditor();
+        }
+    }
+    RenderFileTabs();
+    Info("已重新加载《" + f.name + "》");
+}
+
+// ===== 外部修改检测（主进程fs.watch实时监听，磁盘一变即回调）=====
+// 收到监听回调后比较mtime：与保存后记录的一致说明是自身保存触发，忽略；否则视为外部修改
+function HandleFileMtimeChanged(path, mt){
+    let f = file_data.files.find(x => x.path === path);
+    if(!f) return;
+    if(mt == -1){
+        // 文件在磁盘上被删除
+        if(f.exists !== false){
+            f.exists = false;
+            Info("文件《" + f.name + "》已在磁盘上被删除，保存时需注意");
+        }
+        return;
+    }
+    f.exists = true;
+    if(f.mtime !== undefined && Math.abs(f.mtime - mt) > 1){
+        f.mtime = mt;   // 先更新mtime，防止重复触发
+        HandleExternalModify(f);
+    }
+}
+
+// 文件被外部修改：无未保存编辑时自动重载，有编辑时询问用户
+function HandleExternalModify(f){
+    if(f.working == f.content){
+        // 无未保存编辑：自动重新加载磁盘内容
+        CallSys('read-local-file', {path: f.path, reload: true});
+        Info("《" + f.name + "》已在外部被修改，已重新加载");
+    }else{
+        // 有未保存编辑：提示用户选择（重新加载会丢弃未保存修改）
+        MyModal.Confirm("文件《" + f.name + "》已在外部被修改，当前存在未保存的编辑。是否重新加载？（未保存的修改将丢失）", function(){
+            $("#my-confirm").modal('hide');
+            CallSys('read-local-file', {path: f.path, reload: true});
+        }, function(){
+            Info("已忽略外部修改，保留当前编辑");
+        }, null, "文件已被外部修改", 600, 100);
+    }
 }
 
 // 切换到指定文件（tab点击/新打开文件）
@@ -1195,6 +1514,7 @@ function CloseFile(index){
         f.working = GetCurModifyNoteContent();
     }
     let do_close = ()=>{
+        CallSys('unwatch-file', {path: f.path});   // 关闭文件时移除监听
         file_data.files.splice(index, 1);
         if(file_data.files.length == 0){
             // 所有文件已关闭，自动返回笔记模式
@@ -1229,6 +1549,10 @@ function CloseFile(index){
 
 // 关闭全部文件后返回笔记模式（关闭文件逻辑内部调用）
 function DoExitFileMode(){
+    // 退出文件模式：批量移除所有文件监听
+    for(let f of file_data.files){
+        CallSys('unwatch-file', {path: f.path});
+    }
     let had_md = md_editor_state.shown;
     file_data.files = [];
     file_data.cur_index = -1;
@@ -1378,6 +1702,8 @@ $(function(){
     CallSys('get-last-note')
     // 请求MD配置（符号类经__MD_CFG即时生效，Latex/目录在返回后应用）
     CallSys('md-config-get')
+    // 初始化MD目录宽度拖拽
+    InitTocResizer()
 
     // #search-param-content的checkbox选中时设置toggle背景色
     $("#search-param-content input[type='checkbox']").change(function(){

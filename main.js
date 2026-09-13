@@ -2,7 +2,7 @@
 
 const G_T0 = Date.now();    // 启动耗时打点基准
 
-const { app, BrowserWindow, Menu, ipcMain, dialog, shell } = require('electron')
+const { app, BrowserWindow, Menu, ipcMain, dialog, shell, session } = require('electron')
 const { spawn } = require('child_process')
 const fs = require('fs')
 const path = require('path')
@@ -47,6 +47,13 @@ var G_SKIP_FIRST_NOTE_LOAD = G_STARTUP_MD_FILES.length > 0;
 // 带文件启动的进程还跳过笔记数据库初始化（对纯文件编辑无用，且与第一个进程存在锁竞争），
 // 首次需要笔记功能时再按需初始化
 var G_SKIP_DB_INIT = G_STARTUP_MD_FILES.length > 0;
+
+// Linux：为“带md文档启动的文件进程”单独设置桌面名/窗口类（WM_CLASS），
+// 使笔记窗口与md编辑窗口在窗口管理器/脚本（如 i3 规则、xdotool 匹配）中可区分。
+// 笔记进程不调用此设置，沿用默认类；setDesktopName 为 Linux 专用 API，须在创建窗口前调用。
+if (G_STARTUP_MD_FILES.length > 0 && process.platform === 'linux') {
+    app.setDesktopName('snippet-notes-md.desktop');
+}
 
 // 共享数据目录（笔记db/配置/日志），所有进程一致；须在改写userData前取值。
 // 注意：主进程新增任何需要持久化的数据都必须放在此目录下（sys.conf/notes.db/日志），
@@ -142,11 +149,6 @@ function CreateMenu(){
                 click: () => { AlertToWeb(g_sys_params.note_db_file); },
             },
             {
-                label: '修改储存位置',
-                // 向前台发送消息
-                click: () => ChgDbPath(),
-            },
-            {
                 label:'保存当前笔记',
                 click: () => { CallWeb('save-note') }
             },
@@ -160,8 +162,13 @@ function CreateMenu(){
             label: 'Settings',
             submenu: [
                 {
-                    label: 'MD 配置',
+                    label: 'Markdown配置',
                     click: () => { CallWeb('md-config-open') }
+                },
+                {
+                    label: '修改储存位置',
+                    // 向前台发送消息
+                    click: () => ChgDbPath(),
                 },
             ]
         },
@@ -207,10 +214,37 @@ async function EnsureNotesReady(){
     console.log(MyDate.Now() + " found default note id: " + default_note_id);
 }
 
+// 远程(http/https)图片过滤拦截器，注册于启动时，配置变更需重启进程生效
+var G_IMG_FILTER = null;
+
+// 根据MD配置决定是否在网络层过滤远程图片请求。
+// 默认(img_remote=false)过滤所有 http/https 图片，规避第三方请求/隐私跟踪/内网探测(SSRF式)。
+// 开启后放行，供 MD 文档显示远程图片。CSP meta 已静态放开 http/https，故关闭态必须在此拦掉。
+function SetupRemoteImageFilter(){
+    let ses = session.defaultSession;
+    // 移除旧拦截器，避免 Init 被重复调用时叠加
+    if(G_IMG_FILTER){
+        ses.webRequest.onBeforeRequest(null, G_IMG_FILTER);
+        G_IMG_FILTER = null;
+    }
+    let cfg = g_conf.GetOrSet('md_config', {});
+    if(typeof cfg == 'string'){ try{ cfg = JSON.parse(cfg); }catch(e){ cfg = {}; } }
+    if(cfg.img_remote){ return; }   // 已允许远程图片，不拦截
+    G_IMG_FILTER = (details, cb) => {
+        if(details.resourceType === 'image' && /^https?:/i.test(details.url)){
+            cb({ cancel: true });
+        }else{
+            cb({});
+        }
+    };
+    ses.webRequest.onBeforeRequest(G_IMG_FILTER);
+}
+
 async function Init(){
     MyLog.Init(path.join(g_sys_params.local_data_dir, 'logs', 'snipnote'), true);
 
     g_conf = new MyConf(path.join(g_sys_params.local_data_dir, g_sys_params.config_file_name));
+    SetupRemoteImageFilter();
     g_sys_params.last_note = g_conf.GetOrSet('last_note', g_sys_params.default_note)
     g_sys_params.note_db_file = g_conf.GetOrSet('note_db_file', path.join(g_sys_params.local_data_dir, g_sys_params.note_db_file_name))
 
@@ -253,7 +287,7 @@ G_MAIN_WINDOW = null
 
 // 获取窗口图标路径：文件模式(file)与笔记模式(note)使用不同图标，windows与arm版本路径不同
 function GetWindowIconPath(mode){
-    let base = (mode === 'file') ? 'snippet-note-file' : 'snippet-note'
+    let base = (mode === 'file') ? 'snippet-notes-file' : 'snippet-notes'
     if(is_windows){
         return path.join(__dirname, 'res/img/' + base + '.ico')
     }
@@ -509,7 +543,7 @@ function HandleWebMsg(event, msg){
                 // 弹出保存对话框，选择目录并命名新md文件，创建后打开
                 const { canceled, filePath } = await dialog.showSaveDialog(G_MAIN_WINDOW, {
                     title: '新建md文件',
-                    defaultPath: '新建文档.md',
+                    defaultPath: 'new.md',
                     filters: [{ name: 'Markdown', extensions: ['md'] }]
                 });
                 if(canceled || !filePath) return;
@@ -557,15 +591,24 @@ function HandleWebMsg(event, msg){
             "read-local-file":async function(v){
                 try{
                     let content = MyFile.SyncRead(v.path);
-                    CallWeb('load-local-file', {path: v.path, content: content});
+                    let mtime = fs.statSync(v.path).mtimeMs;
+                    CallWeb('load-local-file', {path: v.path, content: content, mtime: mtime, reload: !!v.reload});
                 }catch(e){
                     SendErrorToWeb("读取文件失败 [" + v.path + "]: " + e.message);
                 }
             },
+            "watch-file":function(v){
+                // 监听本地文件变化，检测外部修改（磁盘一变立即回调，无需轮询）
+                if(v && v.path) WatchLocalFile(v.path);
+            },
+            "unwatch-file":function(v){
+                if(v && v.path) UnwatchLocalFile(v.path);
+            },
             "save-local-file":async function(v){
                 try{
                     MyFile.SyncSave(v.path, v.content);
-                    CallWeb('local-file-saved', {path: v.path, content: v.content});
+                    let mtime = fs.statSync(v.path).mtimeMs;
+                    CallWeb('local-file-saved', {path: v.path, content: v.content, mtime: mtime});
                 }catch(e){
                     SendErrorToWeb("保存文件失败 [" + v.path + "]: " + e.message);
                 }
@@ -583,6 +626,103 @@ function HandleWebMsg(event, msg){
                 // 保存MD配置到 sys.conf
                 g_conf.Set('md_config', v);
             },
+            "save-md-image":async function(v){
+                // 把拖入MD编辑器的图片保存为本地文件，回调相对路径给前端替换blob链接
+                // 参数: {token, mdDir, mdName, dirRule, dataUrl}；token为blob url，用于回调关联
+                try{
+                    if(!v || !v.mdDir || !v.dataUrl){
+                        throw new Error('保存图片参数不完整');
+                    }
+                    let dir = ResolveImageDir(v.mdDir, v.mdName||'', v.dirRule);
+                    let ext = ExtFromDataUrl(v.dataUrl);
+                    // 时间戳+序号生成文件名，避免覆盖已有图片
+                    let base = 'img_' + Date.now();
+                    let idx = 1;
+                    let filePath = path.join(dir, base + ext);
+                    while(fs.existsSync(filePath)){
+                        filePath = path.join(dir, base + '_' + (idx++) + ext);
+                    }
+                    fs.mkdirSync(dir, {recursive:true});
+                    let base64 = String(v.dataUrl).split(',')[1] || '';
+                    fs.writeFileSync(filePath, Buffer.from(base64, 'base64'));
+                    // 相对路径以 md 文件所在目录为基准，反斜杠统一转正斜杠写入markdown
+                    let relPath = path.relative(v.mdDir, filePath).split(path.sep).join('/');
+                    CallWeb('md-image-saved', {token: v.token, relPath: relPath});
+                }catch(e){
+                    // 失败回传error，由前端自行回退base64；不用SendErrorToWeb避免全局弹错
+                    CallWeb('md-image-saved', {token: v && v.token, error: e.message});
+                }
+            },
+            "export-assets":function(v){
+                // 返回导出所需的静态资源：milkdown.min.css（KaTeX字体已内嵌base64）+ 导出专用样式
+                try{
+                    let milkdownCss = MyFile.SyncRead(path.join(__dirname, 'lib/milkdown/milkdown.min.css'));
+                    let exportCss = MyFile.SyncRead(path.join(__dirname, 'res/export-embed.css'));
+                    CallWeb('export-assets-result', {
+                        milkdownCss: EmbedFontsAsBase64(milkdownCss),
+                        exportCss: exportCss,
+                    });
+                }catch(e){
+                    CallWeb('export-assets-result', {error: e.message});
+                }
+            },
+            "img-read-base64":function(v){
+                // 把图片路径批量读取为base64 dataUrl，供导出HTML内嵌（失败项带error，不回退全局弹错）
+                let token = v && v.token;
+                let paths = (v && v.paths) || [];
+                let results = paths.map(src => {
+                    try{
+                        let p = FileUrlToPath(src);
+                        let buf = fs.readFileSync(p);
+                        let mime = MimeFromExt(p);
+                        return {src: src, dataUrl: 'data:' + mime + ';base64,' + buf.toString('base64')};
+                    }catch(e){
+                        return {src: src, error: e.message};
+                    }
+                });
+                CallWeb('img-base64-result', {token: token, results: results});
+            },
+            "export-dialog":async function(v){
+                // 弹出导出保存对话框
+                let format = v && v.format;
+                let defaultName = v && v.defaultName;
+                let defaultDir = v && v.defaultDir;
+                let title, filters;
+                if(format === 'pdf'){
+                    title = '导出为 PDF'; filters = [{name: 'PDF', extensions: ['pdf']}];
+                }else if(format === 'doc'){
+                    title = '导出为 Word (.doc)'; filters = [{name: 'Word 文档', extensions: ['doc']}];
+                }else{
+                    title = '导出为 HTML'; filters = [{name: 'HTML', extensions: ['html', 'htm']}];
+                }
+                let defaultPath = path.join(defaultDir || app.getPath('documents'), defaultName || 'export');
+                const { canceled, filePath } = await dialog.showSaveDialog(G_MAIN_WINDOW, {
+                    title: title,
+                    defaultPath: defaultPath,
+                    filters: filters,
+                });
+                CallWeb('export-dialog-result', {canceled: canceled, filePath: filePath || ''});
+            },
+            "export-save":async function(v){
+                // 把组装好的HTML导出为指定格式文件（html/doc直接写文件，pdf走隐藏窗口printToPDF）
+                let format = v && v.format;
+                let filePath = v && v.filePath;
+                let html = v && v.html;
+                try{
+                    if(!filePath || html == null){
+                        throw new Error('导出参数不完整');
+                    }
+                    let finalPath = EnsureExportExt(filePath, format);
+                    if(format === 'pdf'){
+                        await ExportToPdf(finalPath, html);
+                    }else{
+                        MyFile.SyncSave(finalPath, html);
+                    }
+                    CallWeb('export-result', {ok: true, filePath: finalPath});
+                }catch(e){
+                    CallWeb('export-result', {ok: false, error: e.message});
+                }
+            },
         }
         ProcessWebCall[msg.type](value);
     } catch (error) {
@@ -590,9 +730,150 @@ function HandleWebMsg(event, msg){
     }
 }
 
+// ===== 本地文件监听（检测外部修改）=====
+let g_file_watchers = {};   // path -> fs.FSWatcher
+
+function WatchLocalFile(p){
+    if(g_file_watchers[p]) return;
+    try{
+        g_file_watchers[p] = fs.watch(p, (eventType, filename) => {
+            // 文件变化：读取当前mtime发给渲染进程，由渲染进程比较判断是否为外部修改
+            // （自身保存后渲染进程会更新记录的mtime，相同mtime的事件会被忽略）
+            let mtime = -1;
+            try{ mtime = fs.statSync(p).mtimeMs; }catch(e){}
+            CallWeb('file-external-changed', {path: p, mtime: mtime});
+            // 外部工具可能用"临时文件+rename替换"保存（如vim/sed -i），会替换inode使旧watcher失效，
+            // 仅在rename事件时重建监听；普通覆盖写（change）不影响watcher，无需重建
+            if(eventType === 'rename'){
+                UnwatchLocalFile(p);
+                WatchLocalFile(p);
+            }
+        });
+    }catch(e){
+        // 监听失败（如文件不存在），忽略
+    }
+}
+
+function UnwatchLocalFile(p){
+    let w = g_file_watchers[p];
+    if(w){
+        try{ w.close(); }catch(e){}
+        delete g_file_watchers[p];
+    }
+}
 
 function GetAboutText() {
     let txt = MyFile.SyncRead(path.join(__dirname, 'help/about.html'));
     let package = require("./package.json");
     return txt.replace('__version__', package.version).replace('__electron__', process.versions.electron).replace('__chromium__', process.versions.chrome).replace('__node__', process.versions.node);
+}
+
+// 解析图片存放目录：默认 md 所在目录/images/<md名>；仅识别 {mdname} 占位符，
+// 其余字符清洗为安全字符，解析失败或越界时统一回落默认，确保不写出 md 目录之外
+function ResolveImageDir(mdDir, mdName, dirRule){
+    let rule = (dirRule && typeof dirRule === 'string') ? dirRule : 'images/{mdname}';
+    let safe;
+    if(rule.indexOf('{mdname}') >= 0){
+        safe = rule.split('{mdname}')
+            .map(seg => seg.replace(/[^A-Za-z0-9_\-\s./]/g, '_').replace(/\s+/g, '_').trim())
+            .join(mdName || 'note');
+    }else{
+        safe = rule.replace(/[^A-Za-z0-9_\-\s./]/g, '_').replace(/\s+/g, '_').trim();
+    }
+    // 去掉空段/前后中括路径分隔，防 .. 越界（清洗后不应含 / \ ..）
+    let parts = safe.split(/[\\/]+/).filter(p => p && p !== '.' && p !== '..');
+    safe = parts.join('/');
+    if(!safe) safe = 'images/' + (mdName || 'note');
+    let full = path.resolve(mdDir, safe);
+    let rel = path.relative(path.resolve(mdDir), full);
+    if(rel.startsWith('..') || path.isAbsolute(rel)){
+        // 越界回落默认
+        full = path.resolve(mdDir, 'images', mdName || 'note');
+    }
+    return path.resolve(full);
+}
+
+// 从 dataUrl 解析图片扩展名
+function ExtFromDataUrl(dataUrl){
+    let m = /^data:image\/([A-Za-z0-9+\-]+);/.exec(String(dataUrl||''));
+    let ext = m ? m[1].toLowerCase() : '';
+    if(ext === 'jpeg') ext = 'jpg';
+    if(ext === 'svg+xml') ext = 'svg';
+    return ext ? '.' + ext : '.png';
+}
+
+// ===== 文档导出辅助 =====
+// 把 css 中 @font-face 的 url(KaTeX_*.woff2/woff/ttf) 替换为 base64 内嵌，供自包含HTML使用
+function EmbedFontsAsBase64(css){
+    return String(css).replace(/url\(\s*["']?(\.\/)?(KaTeX_[^"')]+)["']?\s*\)/g, (all, prefix, name)=>{
+        try{
+            let p = path.join(__dirname, 'lib/milkdown', name);
+            let buf = fs.readFileSync(p);
+            let mime = MimeFromExt(p);
+            return 'url("data:' + mime + ';base64,' + buf.toString('base64') + '")';
+        }catch(e){
+            return all;   // 读取失败保留原引用，不阻断导出
+        }
+    });
+}
+
+// 文件扩展名 -> mime
+function MimeFromExt(p){
+    let ext = path.extname(String(p)).toLowerCase();
+    if(ext === '.woff2') return 'font/woff2';
+    if(ext === '.woff') return 'font/woff';
+    if(ext === '.ttf') return 'font/ttf';
+    if(ext === '.png') return 'image/png';
+    if(ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+    if(ext === '.gif') return 'image/gif';
+    if(ext === '.webp') return 'image/webp';
+    if(ext === '.bmp') return 'image/bmp';
+    if(ext === '.svg') return 'image/svg+xml';
+    if(ext === '.ico') return 'image/x-icon';
+    return 'application/octet-stream';
+}
+
+// file:/// URL 或裸路径 -> 本地文件路径（Windows: file:///C:/... 去掉开头的 /）
+function FileUrlToPath(src){
+    let s = String(src || '');
+    if(s.indexOf('file://') === 0){
+        s = s.slice('file://'.length);
+        try{ s = decodeURIComponent(s); }catch(e){}
+        if(/^\/[A-Za-z]:/.test(s)) s = s.slice(1);
+    }
+    return s;
+}
+
+// 导出文件名补扩展名（html/doc直接追加，pdf追加.pdf）
+function EnsureExportExt(filePath, format){
+    let lower = String(filePath).toLowerCase();
+    if(format === 'pdf') return lower.endsWith('.pdf') ? filePath : filePath + '.pdf';
+    if(format === 'doc') return lower.endsWith('.doc') ? filePath : filePath + '.doc';
+    if(lower.endsWith('.html') || lower.endsWith('.htm')) return filePath;
+    return filePath + '.html';
+}
+
+// 用隐藏窗口把自包含HTML打印为PDF（零依赖，Electron内置printToPDF）
+async function ExportToPdf(filePath, html){
+    let tmpHtml = path.join(app.getPath('temp'), 'snipnote-export-' + Date.now() + '.html');
+    fs.writeFileSync(tmpHtml, html, 'utf8');
+    let win = new BrowserWindow({show:false, skipTaskbar:true, webPreferences:{nodeIntegration:false}});
+    try{
+        await new Promise((resolve, reject)=>{
+            win.webContents.once('did-finish-load', () => resolve());
+            win.webContents.once('did-fail-load', (e, code, desc) => reject(new Error('页面加载失败: ' + desc)));
+            win.loadFile(tmpHtml);
+        });
+        // 等文档字体（已内嵌base64）就绪，保证公式字形打印完整
+        await win.webContents.executeJavaScript('document.fonts.ready.then(()=>true)');
+        let pdfBuf = await win.webContents.printToPDF({
+            printBackground: true,
+            pageSize: 'A4',
+            margins: {top:0.4, bottom:0.4, left:0.4, right:0.4},
+        });
+        fs.writeFileSync(filePath, pdfBuf);
+    }finally{
+        try{ win.destroy(); }catch(e){}
+        try{ fs.unlinkSync(tmpHtml); }catch(e){}
+    }
 }

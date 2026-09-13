@@ -1,6 +1,6 @@
 {
   "name": "snippet-notes",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "效能笔记,碎片笔记记录软件,与同类型笔记相比，主要对搜索及速记能力进行优化",
   "main": "main.js",
   "scripts": {
@@ -26,7 +26,7 @@
   },
   "build": {
     "appId": "snippet-notes@xunxun10",
-    "productName": "snippet-note",
+    "productName": "snippet-notes",
     "directories": {
       "output": "dist"
     },
@@ -49,26 +49,26 @@
       "shortcutName": "snipnote",
       "oneClick": false,
       "allowElevation": true,
-      "installerIcon": "res/img/snippet-note.ico",
-      "uninstallerIcon": "res/img/snippet-note.ico",
-      "installerHeaderIcon": "res/img/snippet-note.ico",
+      "installerIcon": "res/img/snippet-notes.ico",
+      "uninstallerIcon": "res/img/snippet-notes.ico",
+      "installerHeaderIcon": "res/img/snippet-notes.ico",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "allowToChangeInstallationDirectory": true
     },
     "win": {
       "target": "dir",
-      "icon": "res/img/snippet-note.ico"
+      "icon": "res/img/snippet-notes.ico"
     },
     "linux":{
       "target": "dir",
-      "icon": "res/img/snippet-note.png"
+      "icon": "res/img/snippet-notes.png"
     },
     "extraResources": [
       {
         "from": "res/img",
         "to": "icon",
-        "filter": ["snippet-note.ico", "snippet-note.png", "snippet-note-file.ico", "snippet-note-file.png"]
+        "filter": ["snippet-notes.ico", "snippet-notes.png", "snippet-notes-file.ico", "snippet-notes-file.png"]
       }
     ]
   },
