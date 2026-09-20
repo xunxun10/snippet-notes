@@ -3,6 +3,9 @@
 S_DIR=$(dirname $(readlink -m $0))
 PKG="$S_DIR/package.json"
 
+# 打包分片大小（所有平台统一，单位 m）
+SPLIT_SIZE="199m"
+
 function Info(){
     echo -e "\033[32m`date '+%Y-%m-%d %H:%M:%S'` Info: $1\033[0m";
 }
@@ -175,8 +178,7 @@ function pack(){
     cd "$S_DIR" && $BUILD_CMD
     CheckOption "$BUILD_CMD 执行失败"
 
-    # 打包：所有平台统一按最大 99MB 分片
-    local split_size="99m"
+    # 打包：分片大小统一取文件顶部 SPLIT_SIZE（当前 199MB）
     local src_dir="$S_DIR/dist/$BUILD_DIR"
     if [ ! -d "$src_dir" ]; then
         Error "构建产物目录 $src_dir 不存在"
@@ -193,9 +195,9 @@ function pack(){
 
     if [ "$PLATFORM" == "arm" ]; then
         # ARM64: 分片 zip 压缩
-        Info "开始将 $BUILD_DIR 打包为 $OUTPUT_NAME-$version.zip（按 ${split_size} 分片）..."
+        Info "开始将 $BUILD_DIR 打包为 $OUTPUT_NAME-$version.zip（按 $SPLIT_SIZE 分片）..."
         mv "$BUILD_DIR" "$OUTPUT_NAME" &&
-            _zip_pack "$OUTPUT_NAME-$version" "$OUTPUT_NAME" "$split_size" &&
+            _zip_pack "$OUTPUT_NAME-$version" "$OUTPUT_NAME" "$SPLIT_SIZE" &&
             mv "$OUTPUT_NAME" "$BUILD_DIR" &&
             Info "已打包为 $OUTPUT_NAME-$version.zip 及分片文件"
         CheckOption "打包 $OUTPUT_NAME 失败"
@@ -205,9 +207,9 @@ function pack(){
         CheckOption "生成增量包失败";
     else
         # Windows/Linux x86: 分片 zip 压缩
-        Info "开始将 $BUILD_DIR 打包为 $OUTPUT_NAME-$version.zip（按 ${split_size} 分片）..."
+        Info "开始将 $BUILD_DIR 打包为 $OUTPUT_NAME-$version.zip（按 $SPLIT_SIZE 分片）..."
         cp -rfa "$BUILD_DIR" "$OUTPUT_NAME" &&
-            _zip_pack "$OUTPUT_NAME-$version" "$OUTPUT_NAME" "$split_size" &&
+            _zip_pack "$OUTPUT_NAME-$version" "$OUTPUT_NAME" "$SPLIT_SIZE" &&
             rm -rf "$OUTPUT_NAME" &&
             Info "已打包为 $OUTPUT_NAME-$version.zip 及分片文件"
         CheckOption "打包 $OUTPUT_NAME 失败"
