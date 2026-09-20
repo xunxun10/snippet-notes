@@ -37,7 +37,6 @@
       "!*.md",
       "!*.lock",
       "!dist.files.md5*.txt",
-      "!change_log.txt",
       "!.gitignore"
     ],
     "asar": true,

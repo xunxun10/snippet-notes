@@ -189,6 +189,10 @@ function CreateMenu(){
                     click: () => { AlertToWeb(MyFile.SyncRead(path.join(__dirname, 'LICENSE'))); },
                 },
                 {
+                    label: 'Change Log',
+                    click: () => { AlertToWeb(MyFile.SyncRead(path.join(__dirname, 'change_log.txt'))); },
+                },
+                {
                     label: 'About',
                     // 向前台发送消息
                     click: () => { AlertToWeb(GetAboutText()); },
