@@ -30,3 +30,5 @@
 - md模式目录增加宽度调节能力，增加鼠标悬浮title
 - 增加md文档导出
 - 区分linux下md和笔记模式的desktop name
+
+0.7.3

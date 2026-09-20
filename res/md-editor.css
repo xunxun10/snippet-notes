@@ -217,6 +217,23 @@ body.toc-resizing #md-toc-resizer{
 #md-editor .milkdown .ProseMirror ol{
     margin-left: 0;
 }
+/* 有序列表数字序号：Milkdown 用 class="label" 渲染序号，被 Bootstrap 全局
+   .label 规则污染（color:#fff 白字、font-size:75%、font-weight:700、line-height:1、
+   border-radius），导致白底白字不可见且变形。此处还原为随正文文字色显示。 */
+#md-editor .milkdown .milkdown-list-item-block li .label-wrapper .label{
+    color: var(--crepe-color-on-surface, #1c1c1c);
+    font-size: inherit;
+    font-weight: 400;
+    line-height: inherit;
+    border-radius: 0;
+}
+/* LaTeX 行内编辑栏：Bootstrap 全局 .container 规则会套上 15px 左右内边距、margin:auto，
+   且窗口宽度≥768px 时强制 750/970/1170px 定宽，导致公式编辑条被撑成宽条；还原为内容自适应。 */
+#md-editor .milkdown .milkdown-latex-inline-edit .container{
+    margin: 0;
+    padding: 0;
+    width: auto;
+}
 /* 引用块：收敛默认 40px 左缩进（左侧竖线分隔保持默认样式） */
 #md-editor .milkdown .ProseMirror blockquote{
     padding-left: 12px;
