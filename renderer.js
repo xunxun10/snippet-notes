@@ -1154,6 +1154,9 @@ function ShowMdEditor(restore){
     // 编辑内容变化时同步回 #last-note，驱动 edit-flag 等原有逻辑
     md_editor_state.crepe.on((listener)=>{
         listener.markdownUpdated((_, md)=>{
+            // 只读模式下编辑器可能自动格式化内容（如补全末尾换行、规范化原始格式），
+            // 此时不写回 #last-note，否则关闭时与磁盘内容比较会出现差异，误报"文档已修改"
+            if(GetFileReadonly()){ return; }
             // 把 blob 图片链接现实化为持久链接（base64/本地相对路径）
             md = RealizeBlobLinks(md);
             $("#last-note").val(md);
@@ -1197,8 +1200,8 @@ function HideMdEditor(update_last_note = true){
     md_editor_state.shown = false;
     $("#md-mode-btn").removeClass('active');
     $("#file-md-mode-btn").removeClass('active').attr('title', 'markdown编辑器');
-    // 更新last-note为md编辑器的内容
-    if(update_last_note && md_editor_state.crepe){
+    // 更新last-note为md编辑器的内容（只读模式下编辑器内容可能已被自动格式化，不写回，避免误报变更）
+    if(update_last_note && md_editor_state.crepe && !GetFileReadonly()){
         try{ $("#last-note").val(RealizeCacheOnString(md_editor_state.crepe.getMarkdown())); }catch(e){}
         TriggerNoteInput();
     }
