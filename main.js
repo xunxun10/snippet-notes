@@ -742,34 +742,58 @@ function HandleWebMsg(event, msg){
 }
 
 // ===== 本地文件监听（检测外部修改）=====
-let g_file_watchers = {};   // path -> fs.FSWatcher
+// 监听文件所在目录而不是文件本身：Linux 下 fs.watch 监听的是inode，外部编辑器常用
+// "临时文件+rename替换"保存（vim/sed -i/gedit/vscode 等），文件inode被替换后监听会
+// 静默失效（内核的 IN_IGNORED 不会暴露成事件），后续变更全部丢失；目录的inode不会被
+// 替换，事件持续有效，原地写/替换写/删除都能覆盖。
+// 按目录聚合：同一目录下多个已打开文件共用一个 watcher，watcher 数量只与"打开文件所在
+// 目录数"有关、与目录内文件总数无关；目录事件按文件名分发，无关文件的事件不做任何处理，
+// 开销与目录内文件数量无关，只与该目录的改动频率有关（笔记/文档目录改动很少）。
+let g_dir_watchers = {};   // dir -> {watcher: fs.FSWatcher, files: Set<文件名>}
+let g_file_dirs = {};      // path -> dir（关闭文件时用于摘除注册）
+
+// 读取当前mtime发给渲染进程，由渲染进程比较判断是否为外部修改
+// （自身保存后渲染进程会更新记录的mtime，相同mtime的事件会被忽略）
+// 文件被删除时取到-1，渲染进程据此提示"已在磁盘上被删除"
+function NotifyFileChanged(p){
+    let mtime = -1;
+    try{ mtime = fs.statSync(p).mtimeMs; }catch(e){}
+    CallWeb('file-external-changed', {path: p, mtime: mtime});
+}
 
 function WatchLocalFile(p){
-    if(g_file_watchers[p]) return;
-    try{
-        g_file_watchers[p] = fs.watch(p, (eventType, filename) => {
-            // 文件变化：读取当前mtime发给渲染进程，由渲染进程比较判断是否为外部修改
-            // （自身保存后渲染进程会更新记录的mtime，相同mtime的事件会被忽略）
-            let mtime = -1;
-            try{ mtime = fs.statSync(p).mtimeMs; }catch(e){}
-            CallWeb('file-external-changed', {path: p, mtime: mtime});
-            // 外部工具可能用"临时文件+rename替换"保存（如vim/sed -i），会替换inode使旧watcher失效，
-            // 仅在rename事件时重建监听；普通覆盖写（change）不影响watcher，无需重建
-            if(eventType === 'rename'){
-                UnwatchLocalFile(p);
-                WatchLocalFile(p);
-            }
-        });
-    }catch(e){
-        // 监听失败（如文件不存在），忽略
+    if(g_file_dirs[p]) return;
+    let dir = path.dirname(p);
+    let base = path.basename(p);
+    g_file_dirs[p] = dir;
+    let entry = g_dir_watchers[dir];
+    if(!entry){
+        entry = g_dir_watchers[dir] = {watcher: null, files: new Set()};
+        try{
+            entry.watcher = fs.watch(dir, (eventType, filename) => {
+                // 只处理已注册的文件；filename 在个别平台可能为null，此时按全部注册文件兜底
+                let names = filename ? [filename] : Array.from(entry.files);
+                for(let name of names){
+                    if(entry.files.has(name)) NotifyFileChanged(path.join(dir, name));
+                }
+            });
+        }catch(e){
+            // 监听失败（如目录不存在），忽略
+        }
     }
+    entry.files.add(base);
 }
 
 function UnwatchLocalFile(p){
-    let w = g_file_watchers[p];
-    if(w){
-        try{ w.close(); }catch(e){}
-        delete g_file_watchers[p];
+    let dir = g_file_dirs[p];
+    delete g_file_dirs[p];
+    let entry = dir ? g_dir_watchers[dir] : null;
+    if(!entry) return;
+    entry.files.delete(path.basename(p));
+    if(entry.files.size == 0){
+        // 该目录已无打开的文件，释放watcher
+        try{ if(entry.watcher) entry.watcher.close(); }catch(e){}
+        delete g_dir_watchers[dir];
     }
 }
 
