@@ -39,6 +39,16 @@
 
 - **方式一（右键）**：右键点击任意 .md 文件 → 打开方式 → 选择其它应用 → 选择 `snippet-notes-md.exe`（勾选"始终使用此应用打开 .md 文件"）→ 确定。
 
+## Linux（UOS/deepin）设置 md 文档默认打开方式
+
+Linux 版产物目录内已附带两个桌面项文件，解压后在程序目录执行一次安装脚本即可（重复执行等于更新）：
+
+```bash
+./install-desktop.sh
+```
+
+脚本会把 `snippet-notes.desktop`（笔记模式）与 `snippet-notes-md.desktop`（md 编辑模式）按实际解压路径安装到 `~/.local/share/applications`，并把 .md 文档的默认打开方式指向后者。两个桌面项的 `StartupWMClass` 分别为 `snippet-notes` 与 `snippet-notes-md`，与程序在 Linux 下为两种模式上报的窗口标识一致，因此任务栏/窗口管理器不会把两种打开方式的窗口汇总到一起。
+
 ## 编译
 
 ### 快速编译

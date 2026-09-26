@@ -5,6 +5,7 @@
 dist.files.md5*.txt
 .trae
 AGENTS.md
+__pycache__
 
 # Logs
 logs

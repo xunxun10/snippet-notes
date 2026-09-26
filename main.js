@@ -48,13 +48,6 @@ var G_SKIP_FIRST_NOTE_LOAD = G_STARTUP_MD_FILES.length > 0;
 // 首次需要笔记功能时再按需初始化
 var G_SKIP_DB_INIT = G_STARTUP_MD_FILES.length > 0;
 
-// Linux：为“带md文档启动的文件进程”单独设置桌面名/窗口类（WM_CLASS），
-// 使笔记窗口与md编辑窗口在窗口管理器/脚本（如 i3 规则、xdotool 匹配）中可区分。
-// 笔记进程不调用此设置，沿用默认类；setDesktopName 为 Linux 专用 API，须在创建窗口前调用。
-if (G_STARTUP_MD_FILES.length > 0 && process.platform === 'linux') {
-    app.setDesktopName('snippet-notes-md.desktop');
-}
-
 // 共享数据目录（笔记db/配置/日志），所有进程一致；须在改写userData前取值。
 // 注意：主进程新增任何需要持久化的数据都必须放在此目录下（sys.conf/notes.db/日志），
 // 不要用app.getPath('userData')——文件进程的userData指向槽位档案目录，会随槽位变化
@@ -82,6 +75,20 @@ if(G_STARTUP_MD_FILES.length > 0){
     app.setPath('userData', G_FILE_PROFILE_DIR);
     app.setPath('sessionData', G_FILE_PROFILE_DIR);
     console.log('[PERF] file profile slot ' + slot + ' (pid ' + process.pid + ')');
+}
+
+// Linux：为“带md文档启动的文件进程”单独设置应用名与桌面名，使笔记窗口和md编辑窗口
+// 在窗口管理器/任务栏（UOS、Deepin等按应用标识分组）中可区分，避免两种打开方式被误汇总；
+// Windows 侧由独立的 snippet-notes-md.exe 达到同样效果（见 scripts/launcher.cs）。
+// 两者缺一不可：
+//   * X11 下 WM_CLASS 取自 app.name（Electron 22 native_window_views.cc 用
+//     Browser::GetName() 拼 wm_class_name/wm_class_class），setDesktopName 不改变 WM_CLASS；
+//   * Wayland 下 app_id 取自桌面名（platform_util::GetXdgAppId() 去掉 .desktop 后缀）。
+// 注意：app.setName 会改变 userData 默认目录，必须在上面取共享目录、设置槽位档案目录之后调用；
+// 且须在创建窗口前（即顶层同步执行）完成，窗口创建时才会读取该值。
+if (G_STARTUP_MD_FILES.length > 0 && process.platform === 'linux') {
+    app.setName('snippet-notes-md');
+    app.setDesktopName('snippet-notes-md.desktop');
 }
 
 // 尝试占用槽位：锁不存在、或锁中pid已退出时视为可用，写入自身pid后复核（防并发竞争，后写者胜出）
