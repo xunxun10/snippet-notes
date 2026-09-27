@@ -3,12 +3,25 @@
 // 仅负责携带参数拉起同目录的主程序 snippet-notes.exe，自身随即退出。
 // 用途：将md文件默认打开方式指向本程序，资源管理器中md文件即显示本程序嵌入的
 // md专属图标（而非主程序图标）；双击md -> 本程序转发 -> 主程序以文件模式打开。
-// 注意：使用系统自带 .NET Framework csc 编译，语法须兼容 C# 5。
+// 注意：打包脚本优先用 Roslyn（VS/MSBuild 自带）以 /deterministic+ 编译，使产物 hash 恒定；
+// 找不到 Roslyn 时回退系统自带 .NET Framework csc，故语法仍须兼容 C# 5。
 
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Reflection;
 using System.Windows.Forms;
+
+// 版本资源：这些字段会写进exe属性，供系统与安全软件识别程序来源，
+// 必须保持常量——字段一旦变化产物hash即变化，安全软件此前的放行/加白会失效。
+[assembly: AssemblyTitle("snippet-notes-md")]
+[assembly: AssemblyDescription("效能笔记 Markdown 文档打开方式转发程序")]
+[assembly: AssemblyProduct("snippet-notes")]
+[assembly: AssemblyCompany("xunxun10")]
+[assembly: AssemblyCopyright("Copyright (C) xunxun10")]
+[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: AssemblyInformationalVersion("1.0.0.0")]
+[assembly: AssemblyVersion("1.0.0.0")]
 
 static class Launcher
 {

@@ -17,12 +17,28 @@
 .md-export .milkdown .ProseMirror h6{ font-size: 13px; line-height: 1.5; margin-top: 8px; }
 .md-export .milkdown .ProseMirror > h1:first-child{ margin-top: 0; }
 /* 表格边框固定颜色（与编辑器一致，避免 color-mix 兼容问题） */
+.md-export .milkdown .milkdown-table-block table{
+    border-collapse: collapse;
+    border-spacing: 0;
+    mso-table-lspace: 0pt;
+    mso-table-rspace: 0pt;
+}
 .md-export .milkdown .milkdown-table-block th,
 .md-export .milkdown .milkdown-table-block td{
     border: 1px solid #c0c4cc;
 }
 .md-export .milkdown .milkdown-table-block th{
     background: #f5f7fa;
+}
+/* Word(.doc) 兼容：Word 不支持 var()/color-mix()，整条声明会被丢弃并回退到 Word 默认值
+   （代码块变白底、引用左侧竖条消失）。这里用字面色值补一遍，HTML/PDF 结果相同。 */
+.md-export .milkdown .milkdown-code-block,
+.md-export .milkdown .milkdown-code-block .cm-editor,
+.md-export .milkdown .milkdown-code-block .cm-gutters{
+    background: #f7f7f7;
+}
+.md-export .milkdown .ProseMirror blockquote:before{
+    background: #d5d5d5;
 }
 /* 代码块圆角与内层裁剪、边距收紧 */
 .md-export .milkdown .milkdown-code-block{

@@ -87,6 +87,81 @@
         root.classList.remove('ProseMirror-focused');
     }
 
+    // Word(.doc) 专用字体栈：Word 不支持 var()，milkdown 的字体声明会被整条丢弃。
+    const WORD_FONT = '"Noto Sans", Arial, "Microsoft YaHei", Helvetica, sans-serif';
+    const WORD_TITLE_FONT = '"Noto Serif", Cambria, "Times New Roman", Times, serif';
+    // 仅 doc 格式追加的 Word 兼容样式（字面值，避免丢失 var() 后回退到 Word 默认字体）
+    const WORD_COMPAT_CSS =
+        '.md-export .milkdown{font-family:' + WORD_FONT + ';}\n' +
+        '.md-export .milkdown .ProseMirror h1,.md-export .milkdown .ProseMirror h2,' +
+        '.md-export .milkdown .ProseMirror h3,.md-export .milkdown .ProseMirror h4,' +
+        '.md-export .milkdown .ProseMirror h5,.md-export .milkdown .ProseMirror h6' +
+        '{font-family:' + WORD_TITLE_FONT + ';}\n';
+
+    // 用子节点替换自身（保留内容、去掉包装层）
+    function Unwrap(el){
+        while(el.firstChild) el.parentNode.insertBefore(el.firstChild, el);
+        el.parentNode.removeChild(el);
+    }
+
+    // Word(.doc) 兼容处理。
+    // 1) Word 打开 HTML 表格时按 HTML 默认值给表格开启“允许单元格间距”，相邻单元格各自
+    //    画一条边框，看起来就是双虚线；浏览器有 border-collapse:collapse 兜底所以正常。
+    //    这里显式写 cellspacing="0" 并内联 border-collapse，让 Word 合并为单实线。
+    // 2) milkdown 的删除线渲染为 <del>，Word 把它当作 HTML 语义的“已删除内容”，显示成
+    //    修订删除标记而不是普通删除线；换成行内 text-decoration 只保留视觉删除线。
+    // 3) Word 给 <a> 套内置“Hyperlink”字符样式，该样式的字体/字号不跟随正文（Word 长期
+    //    已知行为），链接会用另一套字体显得突兀；把字体栈内联到 <a> 上直接覆盖。
+    // 4) 列表项是编辑器专用结构（li.list-item > div.label-wrapper + div.children），Word
+    //    会把 li 内的块级 div 逐个拆成独立段落：li 自身段落为空（空列表项）、序号标签单独
+    //    成行、内容段落被推下去（里面的链接看起来“换行”）。这里去掉序号标签、展开包装层，
+    //    还原成标准 <li>…</li>，由 Word 自己生成项目符号/编号。
+    function ApplyWordCompat(root){
+        // Word 表格：无固定宽度时 Word 按内容自动排版，列会被长 URL 等撑到超出页宽。
+        // 这里设 width:100% + fixed 布局收进页面，长内容换行，并移除编辑器用于横向滚动的
+        // 空辅助表(.drag-preview)，避免 Word 里出现多余的空表格块。
+        root.querySelectorAll('.milkdown-table-block table').forEach(t => {
+            if(!(t.querySelector('th') || t.querySelector('td'))){
+                t.remove();
+                return;
+            }
+            t.setAttribute('cellspacing', '0');
+            t.setAttribute('cellpadding', '0');
+            t.setAttribute('width', '100%');
+            let style = t.getAttribute('style') || '';
+            t.setAttribute('style', style + ';border-collapse:collapse;border-spacing:0;width:100%;table-layout:fixed;');
+        });
+        root.querySelectorAll('.milkdown-table-block th, .milkdown-table-block td').forEach(c => {
+            let s = c.getAttribute('style') || '';
+            c.setAttribute('style', s + ';word-break:break-all;');
+        });
+        // 代码块字体：Word 对 <code>/<pre> 的类样式字体不可靠，会回退成普通字形显得“异常”。
+        // 这里内联等宽字体强制一致（Consolas 优先，缺失回退 Courier New，均为系统自带）。
+        root.querySelectorAll('.milkdown-code-block pre, .milkdown-code-block code').forEach(el => {
+            let s = el.getAttribute('style') || '';
+            el.setAttribute('style', s + ';font-family:Consolas,"Courier New",monospace;');
+        });
+        root.querySelectorAll('del').forEach(del => {
+            let span = document.createElement('span');
+            span.setAttribute('style', 'text-decoration:line-through;');
+            while(del.firstChild) span.appendChild(del.firstChild);
+            del.parentNode.replaceChild(span, del);
+        });
+        root.querySelectorAll('a').forEach(a => {
+            let font = a.closest('h1,h2,h3,h4,h5,h6') ? WORD_TITLE_FONT : WORD_FONT;
+            let style = a.getAttribute('style') || '';
+            a.setAttribute('style', style + ';font-family:' + font + ';color:#409eff;text-decoration:none;');
+        });
+        root.querySelectorAll('li .label-wrapper').forEach(el => el.remove());
+        root.querySelectorAll('div.milkdown-list-item-block, div.content-dom, li > div.children').forEach(Unwrap);
+        // Word 会把 <li><p>文本</p></li> 里的 li 空段和内层 p 段各识别成一个带编号的列表行，
+        // 于是“一个列表项显示成两个编号行 + 一个换行”。这里去掉 li 内只含行内内容的内层 <p>，
+        // 让 <li> 直接包住行内文本，Word 只生成一个编号行。
+        root.querySelectorAll('li > p').forEach(p => {
+            if(!p.querySelector('div, p, ul, ol, table, pre, blockquote, hr')) Unwrap(p);
+        });
+    }
+
     // 图片内嵌：data: 保留；blob: 现实化为 dataURL；file:/// 与相对路径批量走主进程转 base64
     async function ProcessImages(root){
         let pending = [];   // {img, sendSrc}
@@ -122,11 +197,13 @@
         });
     }
 
-    // 获取内嵌资源（milkdown css 字体已内嵌 + 导出专用 css），首次获取后缓存
-    async function FetchAssets(){
-        if(assetsCache) return assetsCache;
-        let resp = await CallSysSlot('export-assets', 'export-assets-result');
+    // 获取内嵌资源（milkdown css + 导出专用 css）。KaTeX 字体只在文档含数学公式时才内嵌，
+    // 所以按 hasMath 分缓存，避免无公式文档也带上约 1.4MB 的字体。
+    async function FetchAssets(hasMath){
+        if(assetsCache && assetsCache.hasMath === hasMath) return assetsCache;
+        let resp = await CallSysSlot('export-assets', 'export-assets-result', {math: hasMath});
         if(!resp || resp.error) throw new Error(resp && resp.error || '获取导出资源失败');
+        resp.hasMath = hasMath;
         assetsCache = resp;
         return resp;
     }
@@ -139,6 +216,10 @@
     // 组装自包含 HTML；doc 格式加 Word 兼容头
     function BuildHtml(docNode, assets, format, title){
         let css = (assets.milkdownCss || '') + '\n' + (assets.exportCss || '');
+        if(format === 'doc'){
+            ApplyWordCompat(docNode);
+            css += '\n' + WORD_COMPAT_CSS;
+        }
         let body = '<div class="md-export">' + docNode.outerHTML + '</div>';
         let head =
             '<meta charset="utf-8">\n' +
@@ -152,7 +233,7 @@
 
     function ExtOf(format){
         if(format === 'pdf') return '.pdf';
-        if(format === 'doc') return '.doc';
+        if(format === 'doc') return '.docx';
         return '.html';
     }
 
@@ -189,7 +270,9 @@
             host.remove();
             host = null;
             await ProcessImages(cloned);
-            let assets = await FetchAssets();
+            // 只有当文档实际包含数学公式(.katex)时才内嵌 KaTeX 字体，否则不内嵌
+            let hasMath = !!(cloned && cloned.querySelector('.katex'));
+            let assets = await FetchAssets(hasMath);
             let baseName = GetExportBaseName();
             let html = BuildHtml(cloned, assets, format, baseName);
             // 文件模式默认存到 md 文件所在目录

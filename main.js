@@ -11,6 +11,11 @@ const MyConf = require('./util/my_conf')
 const MyFile = require('./util/my_file')
 const {MyDate, MyString} = require('./util/my_util')
 const MyLog = require('./util/my_log')
+// 把渲染进程组装好的自包含 HTML 转为原生 .docx（纯 JS，支持 x64/arm）。相比 HTML 假装的 .doc，
+// .docx 是真正的 Word 文档，Word/WPS 能正常使用修订模式。
+const htmlToDocx = require('html-to-docx')
+// html-to-docx 的传递依赖（zip 打包），用于对生成的 docx 做后处理（如给代码块加浅灰底/换等宽字体）
+const JSZip = require('jszip')
 
 const is_mac = process.platform === 'darwin'
 const is_windows = process.platform === 'win32';
@@ -665,12 +670,12 @@ function HandleWebMsg(event, msg){
                 }
             },
             "export-assets":function(v){
-                // 返回导出所需的静态资源：milkdown.min.css（KaTeX字体已内嵌base64）+ 导出专用样式
+                // 返回导出所需的静态资源：milkdown.min.css（含公式时才内嵌 KaTeX 字体）+ 导出专用样式
                 try{
                     let milkdownCss = MyFile.SyncRead(path.join(__dirname, 'lib/milkdown/milkdown.min.css'));
                     let exportCss = MyFile.SyncRead(path.join(__dirname, 'res/export-embed.css'));
                     CallWeb('export-assets-result', {
-                        milkdownCss: EmbedFontsAsBase64(milkdownCss),
+                        milkdownCss: EmbedFontsAsBase64(milkdownCss, !!(v && v.math)),
                         exportCss: exportCss,
                     });
                 }catch(e){
@@ -702,7 +707,7 @@ function HandleWebMsg(event, msg){
                 if(format === 'pdf'){
                     title = '导出为 PDF'; filters = [{name: 'PDF', extensions: ['pdf']}];
                 }else if(format === 'doc'){
-                    title = '导出为 Word (.doc)'; filters = [{name: 'Word 文档', extensions: ['doc']}];
+                    title = '导出为 Word (.docx)'; filters = [{name: 'Word 文档', extensions: ['docx']}];
                 }else{
                     title = '导出为 HTML'; filters = [{name: 'HTML', extensions: ['html', 'htm']}];
                 }
@@ -715,7 +720,7 @@ function HandleWebMsg(event, msg){
                 CallWeb('export-dialog-result', {canceled: canceled, filePath: filePath || ''});
             },
             "export-save":async function(v){
-                // 把组装好的HTML导出为指定格式文件（html/doc直接写文件，pdf走隐藏窗口printToPDF）
+                // 把组装好的HTML导出为指定格式文件（html直接写文件，doc用html-to-docx转成原生.docx，pdf走隐藏窗口printToPDF）
                 let format = v && v.format;
                 let filePath = v && v.filePath;
                 let html = v && v.html;
@@ -726,6 +731,8 @@ function HandleWebMsg(event, msg){
                     let finalPath = EnsureExportExt(filePath, format);
                     if(format === 'pdf'){
                         await ExportToPdf(finalPath, html);
+                    }else if(format === 'doc'){
+                        await ExportToDocx(finalPath, html);
                     }else{
                         MyFile.SyncSave(finalPath, html);
                     }
@@ -838,10 +845,14 @@ function ExtFromDataUrl(dataUrl){
 }
 
 // ===== 文档导出辅助 =====
-// 把 css 中 @font-face 的 url(KaTeX_*.woff2/woff/ttf) 替换为 base64 内嵌，供自包含HTML使用
-function EmbedFontsAsBase64(css){
+// 把 css 中 @font-face 的 url(KaTeX_*.woff2) 替换为 base64 内嵌，供自包含HTML使用。
+// 只有文档确实含数学公式时(haveMath)才内嵌，且只内嵌 woff2（Chromium/浏览器/Word 均支持，
+// 压缩率最高；woff/ttf 是冗余回退，剩余约 800KB 不内嵌）。
+function EmbedFontsAsBase64(css, haveMath){
+    if(!haveMath) return String(css);   // 无公式：完全不做字体内嵌，避免导出文件膨胀约1.4MB
     return String(css).replace(/url\(\s*["']?(\.\/)?(KaTeX_[^"')]+)["']?\s*\)/g, (all, prefix, name)=>{
         try{
+            if(!/\.woff2$/.test(name)) return all;   // 仅内嵌 woff2
             let p = path.join(__dirname, 'lib/milkdown', name);
             let buf = fs.readFileSync(p);
             let mime = MimeFromExt(p);
@@ -879,11 +890,11 @@ function FileUrlToPath(src){
     return s;
 }
 
-// 导出文件名补扩展名（html/doc直接追加，pdf追加.pdf）
+// 导出文件名补扩展名（html直接追加，pdf追加.pdf，doc追加.docx）
 function EnsureExportExt(filePath, format){
     let lower = String(filePath).toLowerCase();
     if(format === 'pdf') return lower.endsWith('.pdf') ? filePath : filePath + '.pdf';
-    if(format === 'doc') return lower.endsWith('.doc') ? filePath : filePath + '.doc';
+    if(format === 'doc') return lower.endsWith('.docx') ? filePath : filePath + '.docx';
     if(lower.endsWith('.html') || lower.endsWith('.htm')) return filePath;
     return filePath + '.html';
 }
@@ -910,5 +921,44 @@ async function ExportToPdf(filePath, html){
     }finally{
         try{ win.destroy(); }catch(e){}
         try{ fs.unlinkSync(tmpHtml); }catch(e){}
+    }
+}
+
+// 用 html-to-docx 把自包含 HTML 转为原生的 .docx 并写入。相比 HTML 假装的 .doc，
+// .docx 是标准 Word 文档，Word/WPS 能正常使用修订(Track Changes)模式。
+async function ExportToDocx(filePath, html){
+    if(html.length > 8 * 1024 * 1024){
+        MyLog.Log('导出 .docx 内容较大(' + (html.length/1024/1024).toFixed(1) + 'MB)，转换可能较慢');
+    }
+    // 表格单元格给适当边距，避免内容紧贴边框；其余遵循 html-to-docx 默认排版
+    let docx = await htmlToDocx(html, null, {
+        table: { cell: { margin: { top: 20, bottom: 20, left: 60, right: 60 } } }
+    });
+    // html-to-docx 把 <pre>/<code> 渲染成 Courier 等宽，但不读取内联样式、也没有背景。
+    // 这里对 docx 后处理：代码段落换成 Consolas 等宽并加浅灰底，接近编辑器里的代码块观感。
+    docx = await StyleCodeDocx(docx);
+    MyFile.SyncSave(filePath, docx);
+}
+
+// 后处理生成的 docx：识别 html-to-docx 标记的代码 run（Courier 字体），改等宽字体并给所在段落加浅灰底
+async function StyleCodeDocx(docxBuf){
+    try{
+        let zip = await JSZip.loadAsync(docxBuf);
+        let entry = zip.file('word/document.xml');
+        if(!entry) return docxBuf;
+        let xml = await entry.async('string');
+        let changed = xml.split('<w:p>').map(block => {
+            if(block.indexOf('w:ascii="Courier"') < 0) return block;
+            // 段落级浅灰底
+            block = block.split('</w:pPr>').join('<w:shd w:val="clear" w:color="auto" w:fill="F2F2F2"/></w:pPr>');
+            // 等宽字体改为 Consolas
+            block = block.replace(/w:ascii="Courier" w:hAnsi="Courier"/g, 'w:ascii="Consolas" w:hAnsi="Consolas" w:cs="Consolas"');
+            return block;
+        }).join('<w:p>');
+        zip.file('word/document.xml', changed);
+        return await zip.generateAsync({type: 'nodebuffer', compression: 'DEFLATE'});
+    }catch(e){
+        MyLog.Log('docx 代码块样式处理失败: ' + e.message);
+        return docxBuf;   // 后处理失败时退回未加工结果，避免导出失败
     }
 }

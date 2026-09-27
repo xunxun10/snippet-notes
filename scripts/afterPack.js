@@ -7,19 +7,69 @@
 //    模板中的 __APP_DIR__ 由安装脚本按实际解压目录回填（绿色版解压位置不固定）。
 
 const { spawnSync } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
-// 查找系统自带的 .NET Framework 编译器，优先64位
+// 查找 C# 编译器，优先 Roslyn（VS2017+ 或独立 MSBuild 自带）：
+//   * Roslyn 支持 /deterministic+，只要源码与图标不变，任何机器、任何时间编译出的产物
+//     字节完全相同、hash 恒定（实测换输出目录、换源码目录、换编译时间均不影响），
+//     因此安全软件放行或加白一次即可长期有效；
+//   * 回退用的系统自带 .NET Framework csc 是老编译器，不支持确定性编译，
+//     每次编译产物的 hash 都不同，等于每次打包都生成一个全新文件，加白需反复重新提交。
 function FindCsc(){
-    const candidates = [
+    const roslyn = [];
+    for(const base of ['C:\\Program Files\\Microsoft Visual Studio', 'C:\\Program Files (x86)\\Microsoft Visual Studio']){
+        for(const ver of ['2022', '2019', '2017']){
+            for(const edition of ['Enterprise', 'Professional', 'Community', 'BuildTools']){
+                roslyn.push(path.join(base, ver, edition, 'MSBuild', 'Current', 'Bin', 'Roslyn', 'csc.exe'));
+            }
+        }
+    }
+    roslyn.push(
+        'C:\\Program Files\\MSBuild\\Current\\Bin\\Roslyn\\csc.exe',
+        'C:\\Program Files (x86)\\MSBuild\\Current\\Bin\\Roslyn\\csc.exe',
+        'C:\\Program Files\\MSBuild\\15.0\\Bin\\Roslyn\\csc.exe',
+        'C:\\Program Files (x86)\\MSBuild\\15.0\\Bin\\Roslyn\\csc.exe'
+    );
+    for(const p of roslyn){
+        if(fs.existsSync(p)) return {exe: p, deterministic: true};
+    }
+    const legacy = [
         'C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe',
         'C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\csc.exe'
     ];
-    for(const p of candidates){
-        if(fs.existsSync(p)) return p;
+    for(const p of legacy){
+        if(fs.existsSync(p)) return {exe: p, deterministic: false};
     }
     return null;
+}
+
+// 应用程序清单：显式声明不请求提权（asInvoker）并列出支持的系统版本，
+// 补全正常软件都应具备的元信息，避免因“三无”特征被安全软件启发式判定为可疑程序
+function ManifestXml(){
+    return `<?xml version="1.0" encoding="utf-8"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity type="win32" name="snippet-notes-md" version="1.0.0.0" processorArchitecture="*"/>
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <supportedOS Id="{e2011457-1546-43c5-a5fe-008deee3d3f0}"/>
+      <supportedOS Id="{35138b9a-5d96-4fbd-8e2d-a2440225f93a}"/>
+      <supportedOS Id="{4a2f28e3-53b9-4441-ba9c-d69d4a4a6e38}"/>
+      <supportedOS Id="{1f676c76-80e1-4239-95bb-83d0f6d0da78}"/>
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
+    </application>
+  </compatibility>
+</assembly>
+`;
 }
 
 // Windows：编译md文件转发程序（嵌入md专属图标）
@@ -35,23 +85,34 @@ function PackWin(context){
     }
     const csc = FindCsc();
     if(!csc){
-        console.warn('[afterPack] 未找到系统csc编译器，跳过launcher编译');
+        console.warn('[afterPack] 未找到csc编译器，跳过launcher编译');
         return;
     }
 
-    const res = spawnSync(csc, [
-        '/nologo', '/target:winexe',
+    const manifest = path.join(os.tmpdir(), 'snippet-notes-md.manifest');
+    fs.writeFileSync(manifest, ManifestXml());
+
+    const args = ['/nologo', '/target:winexe'];
+    if(csc.deterministic) args.push('/deterministic+');
+    args.push(
         '/r:System.Windows.Forms.dll',
         '/win32icon:' + ico,
+        '/win32manifest:' + manifest,
         '/out:' + out,
         src
-    ], {encoding: 'utf8'});
+    );
+    const res = spawnSync(csc.exe, args, {encoding: 'utf8'});
     if(res.status !== 0){
         // 仅警告不阻断打包
         console.warn('[afterPack] launcher编译失败: ' + (res.stderr || res.stdout || ''));
         return;
     }
+    if(!csc.deterministic){
+        console.warn('[afterPack] 未找到Roslyn编译器，本次产物hash不固定，加白后重新打包需重新提交');
+    }
+    const sha256 = crypto.createHash('sha256').update(fs.readFileSync(out)).digest('hex');
     console.log('[afterPack] 已生成 ' + out);
+    console.log('[afterPack] sha256=' + sha256);
 }
 
 // 主程序桌面项：不带md参数启动即笔记模式，对应WM_CLASS/app_id为 snippet-notes

@@ -130,10 +130,33 @@ function run(){
     CheckOption "npm start 执行失败"
 }
 
+# ===== 关闭正在运行的已安装应用 =====
+# Windows 上构建前若应用仍在运行，exe 会被占用导致打包失败，这里强制关闭。
+# 用 PowerShell Stop-Process 规避 Git Bash 下 taskkill /F 的斜杠转义问题，对所有同名进程生效。
+function _kill_running(){
+    if [ "$PLATFORM" != "win" ]; then
+        return
+    fi
+    local before after
+    before=$(powershell.exe -NoProfile -Command "Get-Process -Name 'snippet-notes','snippet-notes-md' -ErrorAction SilentlyContinue | Measure-Object | Select-Object -ExpandProperty Count" 2>/dev/null)
+    if [ -z "$before" ] || [ "$before" -eq 0 ]; then
+        return
+    fi
+    Info "发现 $before 个正在运行的已安装应用进程，正在关闭..."
+    powershell.exe -NoProfile -Command "Get-Process -Name 'snippet-notes','snippet-notes-md' -ErrorAction SilentlyContinue | Stop-Process -Force" 2>/dev/null
+    # 等待进程释放文件句柄
+    sleep 1
+    after=$(powershell.exe -NoProfile -Command "Get-Process -Name 'snippet-notes','snippet-notes-md' -ErrorAction SilentlyContinue | Measure-Object | Select-Object -ExpandProperty Count" 2>/dev/null)
+    Info "剩余应用进程: ${after:-0}"
+}
+
 # ===== 构建 =====
 function build(){
     local t_start=$(date +%s)
     _detect_platform
+
+    # 先关闭运行的已安装应用，避免 exe 被占用
+    _kill_running
 
     Info "开始执行 $BUILD_CMD ..."
     cd "$S_DIR" && $BUILD_CMD
@@ -172,6 +195,9 @@ function pack(){
 
     # 清理旧包（兼容 zip 与 7za 两种分卷命名）
     rm -f "$S_DIR/dist/$OUTPUT_NAME"*.zip "$S_DIR/dist/$OUTPUT_NAME"*.zip.[0-9][0-9][0-9] "$S_DIR/dist/$OUTPUT_NAME"*.z[0-9][0-9]
+
+    # 先关闭运行的已安装应用，避免 exe 被占用
+    _kill_running
 
     # 构建
     Info "开始执行 $BUILD_CMD ..."
